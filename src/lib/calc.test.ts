@@ -1,16 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import type { Entry, Program } from '../types'
 import {
-  aggregate,
   bmi,
   bmiCategory,
   currentRate,
   currentWeight,
+  endDateForRate,
   milestones,
   nextMilestone,
+  objectiveRate,
   overallRate,
   progress,
   projectDate,
+  rateForEndDate,
   smoothedWeight,
   weeklySummary,
 } from './calc'
@@ -23,7 +25,6 @@ const program: Program = {
   endDate: '2027-02-15',
   startWeight: 110,
   targetWeight: 90,
-  targetRatePerWeek: 0.35,
 }
 
 const e = (date: string, weight: number): Entry => ({ date, weight })
@@ -123,12 +124,18 @@ describe('résumé hebdomadaire', () => {
   })
 })
 
-describe('agrégation', () => {
-  it('garde la dernière pesée de chaque mois', () => {
-    const pts = aggregate([e('2026-08-02', 110), e('2026-08-30', 107), e('2026-09-03', 106)], 'month')
-    expect(pts).toEqual([
-      { x: '2026-08-01', y: 107 },
-      { x: '2026-09-01', y: 106 },
-    ])
+describe('date de fin ↔ rythme visé', () => {
+  it('déduit le rythme de la date de fin (20 kg en 26 semaines)', () => {
+    expect(rateForEndDate(110, 90, '2026-08-17', '2027-02-15')).toBeCloseTo(20 / 26, 6)
+    expect(objectiveRate(program)).toBeCloseTo(-20 / 26, 6)
+  })
+  it('déduit la date de fin du rythme, et les deux sont réciproques', () => {
+    expect(endDateForRate(110, 90, '2026-08-17', 0.5)).toBe('2027-05-24') // 40 semaines = 280 j
+    const end = endDateForRate(105.3, 90, '2026-08-20', 0.35)!
+    expect(rateForEndDate(105.3, 90, '2026-08-20', end)).toBeCloseTo(0.35, 2)
+  })
+  it('refuse un rythme nul ou une fin avant le début', () => {
+    expect(endDateForRate(110, 90, '2026-08-17', 0)).toBeNull()
+    expect(rateForEndDate(110, 90, '2026-08-17', '2026-08-01')).toBeNull()
   })
 })

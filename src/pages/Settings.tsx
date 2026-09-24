@@ -6,6 +6,7 @@ import { PageHeader } from '../components/ui'
 import { ImportSheet } from '../components/ImportSheet'
 import { addDays, todayISO } from '../lib/dates'
 import { fmtNumber, parseDecimal } from '../lib/format'
+import { endDateForRate, rateForEndDate } from '../lib/calc'
 
 interface Props {
   program: Program | null
@@ -19,20 +20,43 @@ interface Form {
   endDate: string
   startWeight: string
   targetWeight: string
-  targetRatePerWeek: string
+  rate: string // déduit de la date de fin, et inversement
+}
+
+/** Recalcule le rythme à partir de la date de fin (vide si les champs ne le permettent pas encore). */
+function rateOf(f: Form): string {
+  const start = parseDecimal(f.startWeight)
+  const target = parseDecimal(f.targetWeight)
+  if (start === null || target === null || !f.startDate || !f.endDate) return ''
+  const rate = rateForEndDate(start, target, f.startDate, f.endDate)
+  return rate ? fmtNumber(rate, 2) : ''
 }
 
 /** Sans programme, on part de la première pesée connue (ex. données importées). */
 function toForm(p: Program | null, first?: Entry): Form {
   const start = p?.startDate ?? first?.date ?? todayISO()
-  return {
+  const form: Form = {
     heightCm: p ? String(p.heightCm) : '',
     startDate: start,
     endDate: p?.endDate ?? addDays(start, 7 * 26),
     startWeight: p ? fmtNumber(p.startWeight) : first ? fmtNumber(first.weight) : '',
     targetWeight: p ? fmtNumber(p.targetWeight) : '',
-    targetRatePerWeek: p ? fmtNumber(p.targetRatePerWeek, 2) : '0,35',
+    rate: '',
   }
+  return { ...form, rate: rateOf(form) }
+}
+
+/** Date de fin et rythme sont liés : modifier l'un recalcule l'autre. */
+function linked(f: Form, changed: keyof Form): Form {
+  if (changed === 'rate') {
+    const rate = parseDecimal(f.rate)
+    const start = parseDecimal(f.startWeight)
+    const target = parseDecimal(f.targetWeight)
+    const end = rate && start !== null && target !== null ? endDateForRate(start, target, f.startDate, rate) : null
+    return end ? { ...f, endDate: end } : f
+  }
+  if (changed === 'heightCm') return f
+  return { ...f, rate: rateOf(f) }
 }
 
 export function Settings({ program, entries, onDemo }: Props) {
@@ -53,20 +77,21 @@ export function Settings({ program, entries, onDemo }: Props) {
     })
   }, [entryCount])
 
-  const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
+  const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => linked({ ...f, [k]: e.target.value }, k))
 
   const parsed = {
     heightCm: parseDecimal(form.heightCm),
     startWeight: parseDecimal(form.startWeight),
     targetWeight: parseDecimal(form.targetWeight),
-    targetRatePerWeek: parseDecimal(form.targetRatePerWeek),
+    rate: parseDecimal(form.rate),
   }
   const errors: string[] = []
   if (!parsed.heightCm || parsed.heightCm < 100 || parsed.heightCm > 250) errors.push('Taille entre 100 et 250 cm')
   if (!parsed.startWeight || parsed.startWeight < 20) errors.push('Poids de départ invalide')
   if (!parsed.targetWeight || parsed.targetWeight < 20) errors.push('Objectif invalide')
   if (parsed.startWeight && parsed.targetWeight && parsed.startWeight === parsed.targetWeight) errors.push("L'objectif doit différer du départ")
-  if (!parsed.targetRatePerWeek || parsed.targetRatePerWeek <= 0) errors.push('Rythme visé invalide')
+  if (!parsed.rate || parsed.rate <= 0) errors.push('Rythme visé invalide')
   if (!form.startDate || !form.endDate || form.endDate <= form.startDate) errors.push('La date de fin doit suivre la date de début')
 
   async function save() {
@@ -77,7 +102,6 @@ export function Settings({ program, entries, onDemo }: Props) {
       endDate: form.endDate,
       startWeight: parsed.startWeight!,
       targetWeight: parsed.targetWeight!,
-      targetRatePerWeek: parsed.targetRatePerWeek!,
     })
     setStatus('Programme enregistré ✓')
   }
@@ -116,12 +140,13 @@ export function Settings({ program, entries, onDemo }: Props) {
       </h2>
       <div className="list">
         <Field id="h" label="Taille" unit="cm" value={form.heightCm} onChange={set('heightCm')} numeric />
-        <Field id="sd" label="Date de début" type="date" value={form.startDate} onChange={set('startDate')} />
-        <Field id="ed" label="Date de fin" type="date" value={form.endDate} onChange={set('endDate')} />
         <Field id="sw" label="Poids de départ" unit="kg" value={form.startWeight} onChange={set('startWeight')} numeric />
+        <Field id="sd" label="Date de début" type="date" value={form.startDate} onChange={set('startDate')} />
         <Field id="tw" label="Objectif" unit="kg" value={form.targetWeight} onChange={set('targetWeight')} numeric />
-        <Field id="tr" label="Rythme visé" unit="kg/sem" value={form.targetRatePerWeek} onChange={set('targetRatePerWeek')} numeric />
+        <Field id="ed" label="Date de fin" type="date" value={form.endDate} onChange={set('endDate')} />
+        <Field id="tr" label="Rythme visé" unit="kg/sem" value={form.rate} onChange={set('rate')} numeric />
       </div>
+      <p className="section-footer">Date de fin et rythme visé sont liés : modifier l'un recalcule l'autre.</p>
       {errors.length > 0 && touched && <p className="section-footer bad">{errors[0]}</p>}
       <button className="btn" style={{ marginTop: 12 }} disabled={errors.length > 0 || !dirty} onClick={save}>
         {program ? 'Enregistrer les modifications' : 'Créer mon programme'}

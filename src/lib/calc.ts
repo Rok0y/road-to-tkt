@@ -1,5 +1,5 @@
 import type { Entry, ISODate, Program } from '../types'
-import { addDays, dayNumber, diffDays, mondayOf, monthOf, yearOf } from './dates'
+import { addDays, dayNumber, diffDays } from './dates'
 
 export const SMOOTHING_DAYS = 7
 export const CURRENT_RATE_DAYS = 14
@@ -87,9 +87,23 @@ export function milestones(program: Program, entries: Entry[]): Milestone[] {
 
 // ---------- Rythmes (kg / semaine, signés) ----------
 
-/** Rythme objectif signé : négatif pour une perte. */
+/** Rythme visé (kg/semaine, positif) pour aller du départ à l'objectif entre les deux dates. */
+export function rateForEndDate(startWeight: number, targetWeight: number, startDate: ISODate, endDate: ISODate): number | null {
+  const days = diffDays(startDate, endDate)
+  return days > 0 ? (Math.abs(targetWeight - startWeight) / days) * 7 : null
+}
+
+/** Date de fin correspondant à un rythme visé (kg/semaine, positif). */
+export function endDateForRate(startWeight: number, targetWeight: number, startDate: ISODate, rate: number): ISODate | null {
+  if (!(rate > 0)) return null
+  const days = Math.ceil((Math.abs(targetWeight - startWeight) / rate) * 7)
+  return days > 0 && days < 365 * 20 ? addDays(startDate, days) : null
+}
+
+/** Rythme objectif signé (négatif pour une perte), déduit de la date de fin. */
 export function objectiveRate(program: Program): number {
-  return direction(program) * program.targetRatePerWeek
+  const rate = rateForEndDate(program.startWeight, program.targetWeight, program.startDate, program.endDate) ?? 0
+  return direction(program) * rate
 }
 
 /** Pente (régression linéaire) des pesées des 14 derniers jours. */
@@ -175,7 +189,7 @@ export function weeklySummary(program: Program, entries: Entry[], today: ISODate
   return weeks
 }
 
-// ---------- Agrégation pour les graphiques ----------
+// ---------- Graphique ----------
 
 export type Granularity = 'day' | 'week' | 'month' | 'year'
 
@@ -184,33 +198,9 @@ export interface Point {
   y: number
 }
 
-const PERIOD_KEY: Record<Granularity, (iso: ISODate) => ISODate> = {
-  day: (iso) => iso,
-  week: mondayOf,
-  month: monthOf,
-  year: yearOf,
-}
-
-/** Dernière pesée de chaque période, datée au début de la période. */
-export function aggregate(entries: Entry[], granularity: Granularity): Point[] {
-  const byPeriod = new Map<ISODate, number>()
-  for (const e of sortEntries(entries)) byPeriod.set(PERIOD_KEY[granularity](e.date), e.weight)
-  return [...byPeriod].map(([x, y]) => ({ x, y }))
-}
-
 /** Série « min 7 jours » évaluée à chaque date de pesée. */
 export function smoothedSeries(entries: Entry[]): Point[] {
   return sortEntries(entries).map((e) => ({ x: e.date, y: smoothedWeight(entries, e.date)! }))
-}
-
-/** Droite du plan : départ → objectif au rythme objectif. */
-export function planLine(program: Program): Point[] {
-  const end = projectDate(program.startWeight, program.targetWeight, objectiveRate(program), program.startDate)
-  if (!end) return []
-  return [
-    { x: program.startDate, y: program.startWeight },
-    { x: end, y: program.targetWeight },
-  ]
 }
 
 export function round(value: number, digits = 1): number {

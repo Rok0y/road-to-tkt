@@ -100,8 +100,8 @@ export function Home({ program, entries, stats, photoDates, today, onAdd, onEdit
       {/* Jauge au centre, repères aux quatre coins (le cercle laisse les coins libres). */}
       <div className="card" style={{ position: 'relative', padding: '18px 14px 14px' }}>
         <Gauge weight={stats.weight} progress={stats.progress} reached={stats.reached} />
-        <Corner at="top-left" label="Départ" value={fmtKg(program.startWeight)} />
-        <Corner at="top-right" label="Objectif" value={fmtKg(program.targetWeight)} />
+        <Corner at="top-left" label="Départ 🚀" value={fmtKg(program.startWeight)} sub={fmtDate(program.startDate, 'd MMM yyyy')} />
+        <Corner at="top-right" label="🏆 Objectif" value={fmtKg(program.targetWeight)} sub={fmtDate(program.endDate, 'd MMM yyyy')} />
         <Corner
           at="bottom-left"
           label={lost <= 0 ? 'Perdu' : 'Pris'}
@@ -210,7 +210,7 @@ export function Home({ program, entries, stats, photoDates, today, onAdd, onEdit
 
 type CornerPos = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
 
-function Corner({ at, label, value, tone }: { at: CornerPos; label: string; value: string; tone?: 'good' | 'bad' }) {
+function Corner({ at, label, value, sub, tone }: { at: CornerPos; label: string; value: string; sub?: string; tone?: 'good' | 'bad' }) {
   const [v, h] = at.split('-') as ['top' | 'bottom', 'left' | 'right']
   return (
     <div style={{ position: 'absolute', [v]: 14, [h]: 16, textAlign: h }}>
@@ -218,6 +218,7 @@ function Corner({ at, label, value, tone }: { at: CornerPos; label: string; valu
       <div className={`num ${tone ?? ''}`} style={{ fontWeight: 700, fontSize: 17 }}>
         {value}
       </div>
+      {sub && <div className="muted" style={{ fontSize: 11 }}>{sub}</div>}
     </div>
   )
 }

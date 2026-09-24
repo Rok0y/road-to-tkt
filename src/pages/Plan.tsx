@@ -3,7 +3,7 @@ import type { Entry, Program } from '../types'
 import type { Stats } from '../hooks'
 import { saveProgram } from '../db/db'
 import { EmptyState, PageHeader } from '../components/ui'
-import { direction, projectDate, weeklySummary } from '../lib/calc'
+import { direction, endDateForRate, objectiveRate, projectDate, weeklySummary } from '../lib/calc'
 import { diffDays } from '../lib/dates'
 import { fmtDate, fmtDelta, fmtKg, fmtNumber, fmtRate, parseDecimal } from '../lib/format'
 
@@ -25,7 +25,7 @@ const RATE_LABELS: Record<RateKey, { title: string; sub: string }> = {
 export function Plan({ program, entries, stats, today }: Props) {
   const [rateInput, setRateInput] = useState('')
   useEffect(() => {
-    if (program) setRateInput(fmtNumber(program.targetRatePerWeek, 2))
+    if (program) setRateInput(fmtNumber(Math.abs(objectiveRate(program)), 2))
   }, [program])
 
   const weeks = useMemo(
@@ -58,13 +58,16 @@ export function Plan({ program, entries, stats, today }: Props) {
     return 'bad'
   }
 
+  /** Changer le rythme visé déplace la date de fin (les deux sont liés). */
   function commitRate() {
+    const p = program!
     const v = parseDecimal(rateInput)
-    if (!program || v === null || v <= 0 || v > 3) {
-      setRateInput(fmtNumber(program!.targetRatePerWeek, 2))
+    const end = v !== null && v > 0 && v <= 3 ? endDateForRate(p.startWeight, p.targetWeight, p.startDate, v) : null
+    if (!end) {
+      setRateInput(fmtNumber(Math.abs(objectiveRate(p)), 2))
       return
     }
-    if (v !== program.targetRatePerWeek) saveProgram({ ...program, targetRatePerWeek: v })
+    if (end !== p.endDate) saveProgram({ ...p, endDate: end })
   }
 
   const totalWeeks = Math.ceil(diffDays(program.startDate, program.endDate) / 7)
@@ -106,7 +109,12 @@ export function Plan({ program, entries, stats, today }: Props) {
           />
           <span className="unit">kg/sem</span>
         </div>
+        <div className="field">
+          <span style={{ flex: 1 }}>Date de fin</span>
+          <span className="muted num">{fmtDate(program.endDate)}</span>
+        </div>
       </div>
+      <p className="section-footer">Le rythme visé et la date de fin sont liés : changer le rythme déplace la date de fin.</p>
       <div className="grid-3" style={{ marginTop: 12 }}>
         {(Object.keys(RATE_LABELS) as RateKey[]).map((k) => (
           <div key={k} className="card" style={{ padding: '12px 10px', textAlign: 'center' }}>

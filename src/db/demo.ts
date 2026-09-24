@@ -60,10 +60,9 @@ export async function loadDemoData() {
       id: 'main',
       heightCm: 180,
       startDate,
-      endDate: addDays(startDate, 7 * 40),
+      endDate: addDays(startDate, 7 * 41), // ≈ 0,5 kg/semaine
       startWeight,
       targetWeight: 88,
-      targetRatePerWeek: 0.5,
     })
     await db.entries.bulkPut(entries)
     await db.photos.bulkAdd(photos)

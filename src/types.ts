@@ -8,8 +8,8 @@ export interface Program {
   endDate: ISODate
   startWeight: number
   targetWeight: number
-  /** Rythme visé, en kg/semaine, toujours positif (dans le sens de l'objectif). */
-  targetRatePerWeek: number
+  // Le rythme visé n'est pas stocké : il se déduit toujours des dates (voir objectiveRate),
+  // pour que date de fin et rythme ne puissent jamais se contredire.
 }
 
 export interface Entry {
