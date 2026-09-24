@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { registerSW } from 'virtual:pwa-register'
 import App from './App'
-import { db } from './db/db'
+import { allEntries, allPhotos, db } from './db/db'
 import { ErrorBoundary, StartupError } from './components/StartupError'
 import { InAppBrowser, isInAppBrowser } from './components/InAppBrowser'
 import './styles/theme.css'
@@ -15,13 +15,12 @@ navigator.storage?.persist?.().catch(() => {})
 const root = createRoot(document.getElementById('root')!)
 
 /**
- * Ouvre la base et y fait une vraie lecture par curseur, comme l'app le fera ensuite :
- * certains navigateurs (intégrés à Messenger, cookies bloqués…) ouvrent la base puis échouent à la lecture.
+ * Ouvre la base et fait les mêmes lectures que l'app : certains navigateurs
+ * (cookies bloqués, navigateurs intégrés…) ouvrent la base puis échouent à la lecture.
  */
 async function checkStorage() {
   await db.open()
-  await db.entries.orderBy('date').first()
-  await db.photos.orderBy('date').uniqueKeys()
+  await Promise.all([db.program.get('main'), allEntries(), allPhotos()])
 }
 
 function start() {

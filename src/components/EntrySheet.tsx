@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, deleteEntry, deletePhoto, movePhotos, saveEntry, savePhoto } from '../db/db'
+import { db, deleteEntry, deletePhoto, movePhotos, photosOn, saveEntry, savePhoto } from '../db/db'
 import { compressPhoto } from '../lib/images'
 import { fmtNumber, parseDecimal } from '../lib/format'
 import { todayISO } from '../lib/dates'
 import { useBlobUrl } from '../hooks'
-import { POSES, POSE_LABELS, type Entry, type Pose } from '../types'
+import { POSES, POSE_LABELS, type Entry, type PhotoData, type Pose } from '../types'
 import { Sheet } from './ui'
 
 type Slot = { kind: 'keep' } | { kind: 'new'; blob: Blob; thumb: Blob } | { kind: 'remove' } | { kind: 'busy' }
@@ -25,7 +25,7 @@ export function EntrySheet({ entry, lastWeight, onClose }: Props) {
 
   // Photos déjà enregistrées pour la date d'origine de la pesée.
   const photoDate = entry?.date ?? date
-  const existing = useLiveQuery(() => db.photos.where('date').equals(photoDate).toArray(), [photoDate])
+  const existing = useLiveQuery(() => photosOn(photoDate), [photoDate])
 
   // Si on choisit une date qui a déjà une pesée, on la signale.
   const clash = useLiveQuery(
@@ -153,7 +153,7 @@ function PhotoSlot({
 }: {
   pose: Pose
   slot: Slot
-  stored?: Blob
+  stored?: PhotoData
   onPick: (f: File | undefined) => void
   onRemove: () => void
 }) {

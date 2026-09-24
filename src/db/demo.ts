@@ -4,7 +4,7 @@ import { addDays, diffDays, todayISO } from '../lib/dates'
 import { fmtDate } from '../lib/format'
 import { db } from './db'
 
-function placeholder(pose: Pose, date: string, shrink: number, size: number): Promise<Blob> {
+function placeholder(pose: Pose, date: string, shrink: number, size: number): Promise<ArrayBuffer> {
   const canvas = document.createElement('canvas')
   canvas.width = size
   canvas.height = Math.round(size * 4 / 3)
@@ -24,7 +24,7 @@ function placeholder(pose: Pose, date: string, shrink: number, size: number): Pr
   ctx.font = `600 ${16 * s}px -apple-system, system-ui, sans-serif`
   ctx.textAlign = 'center'
   ctx.fillText(`${POSE_LABELS[pose]} · ${fmtDate(date, 'd MMM')}`, size / 2, 370 * s)
-  return new Promise((resolve) => canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.8))
+  return new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.8)).then((b) => b.arrayBuffer())
 }
 
 /** Remplit la base avec ~12 semaines de pesées réalistes pour essayer l'app. */

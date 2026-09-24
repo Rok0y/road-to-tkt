@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../db/db'
+import { allPhotos } from '../db/db'
 import { useBlobUrl } from '../hooks'
 import { EmptyState, PageHeader, Segmented } from '../components/ui'
 import { capitalize, fmtDate, fmtDelta, fmtKg } from '../lib/format'
@@ -10,7 +10,7 @@ import { POSES, POSE_LABELS, type Entry, type Photo, type Pose } from '../types'
 type Mode = 'side' | 'slider'
 
 export function Photos({ entries }: { entries: Entry[] }) {
-  const photos = useLiveQuery(() => db.photos.orderBy('date').toArray(), [])
+  const photos = useLiveQuery(allPhotos, [])
   const [pose, setPose] = useState<Pose>('front')
   const [mode, setMode] = useState<Mode>('side')
   const [before, setBefore] = useState<string | null>(null)

@@ -27,10 +27,16 @@ export const POSE_LABELS: Record<Pose, string> = {
   back: 'Dos',
 }
 
+/**
+ * Octets JPEG. Stockés en ArrayBuffer et non en Blob : le WebKit d'iOS refuse parfois d'écrire
+ * des Blob dans IndexedDB (« Error preparing Blob/File data »). Les anciennes photos en Blob restent lisibles.
+ */
+export type PhotoData = ArrayBuffer | Blob
+
 export interface Photo {
   id?: number
   date: ISODate
   pose: Pose
-  blob: Blob
-  thumb: Blob
+  blob: PhotoData
+  thumb: PhotoData
 }

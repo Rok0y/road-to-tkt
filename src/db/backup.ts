@@ -1,4 +1,4 @@
-import type { Entry, Photo, Pose, Program } from '../types'
+import type { Entry, PhotoData, Photo, Pose, Program } from '../types'
 import { todayISO } from '../lib/dates'
 import { db } from './db'
 
@@ -11,7 +11,8 @@ interface BackupFile {
   photos: { date: string; pose: Pose; blob: string; thumb: string }[]
 }
 
-function blobToDataUrl(blob: Blob): Promise<string> {
+function toDataUrl(data: PhotoData): Promise<string> {
+  const blob = data instanceof Blob ? data : new Blob([data], { type: 'image/jpeg' })
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(reader.result as string)
@@ -20,8 +21,8 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   })
 }
 
-async function dataUrlToBlob(url: string): Promise<Blob> {
-  return (await fetch(url)).blob()
+async function dataUrlToBuffer(url: string): Promise<ArrayBuffer> {
+  return (await fetch(url)).arrayBuffer()
 }
 
 export async function buildBackup(): Promise<File> {
@@ -40,8 +41,8 @@ export async function buildBackup(): Promise<File> {
       photos.map(async (p) => ({
         date: p.date,
         pose: p.pose,
-        blob: await blobToDataUrl(p.blob),
-        thumb: await blobToDataUrl(p.thumb),
+        blob: await toDataUrl(p.blob),
+        thumb: await toDataUrl(p.thumb),
       })),
     ),
   }
@@ -75,8 +76,8 @@ export async function restoreBackup(file: File): Promise<{ entries: number; phot
     data.photos.map(async (p) => ({
       date: p.date,
       pose: p.pose,
-      blob: await dataUrlToBlob(p.blob),
-      thumb: await dataUrlToBlob(p.thumb),
+      blob: await dataUrlToBuffer(p.blob),
+      thumb: await dataUrlToBuffer(p.thumb),
     })),
   )
   await db.transaction('rw', db.program, db.entries, db.photos, async () => {

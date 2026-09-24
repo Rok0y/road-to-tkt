@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from './db/db'
-import type { Entry, Program } from './types'
+import { allEntries, allPhotos, db } from './db/db'
+import type { Entry, PhotoData, Program } from './types'
 import { todayISO } from './lib/dates'
 import {
   currentRate,
@@ -20,12 +20,12 @@ export function useProgram(): Program | null | undefined {
 
 /** Pesées triées par date croissante. */
 export function useEntries(): Entry[] | undefined {
-  return useLiveQuery(() => db.entries.orderBy('date').toArray(), [])
+  return useLiveQuery(allEntries, [])
 }
 
 export function usePhotoDates(): Set<string> {
-  const dates = useLiveQuery(() => db.photos.orderBy('date').uniqueKeys(), [])
-  return useMemo(() => new Set((dates ?? []) as string[]), [dates])
+  const photos = useLiveQuery(allPhotos, [])
+  return useMemo(() => new Set((photos ?? []).map((p) => p.date)), [photos])
 }
 
 /** Date du jour, rafraîchie quand l'app revient au premier plan (PWA laissée ouverte). */
@@ -66,15 +66,15 @@ export function useStats(program: Program | null | undefined, entries: Entry[] |
 
 export type Stats = NonNullable<ReturnType<typeof useStats>>
 
-/** URL temporaire pour afficher un Blob, libérée automatiquement. */
-export function useBlobUrl(blob: Blob | undefined | null): string | undefined {
+/** URL temporaire pour afficher une image (ArrayBuffer ou Blob), libérée automatiquement. */
+export function useBlobUrl(blob: PhotoData | undefined | null): string | undefined {
   const [url, setUrl] = useState<string>()
   useEffect(() => {
     if (!blob) {
       setUrl(undefined)
       return
     }
-    const next = URL.createObjectURL(blob)
+    const next = URL.createObjectURL(blob instanceof Blob ? blob : new Blob([blob], { type: 'image/jpeg' }))
     setUrl(next)
     return () => URL.revokeObjectURL(next)
   }, [blob])

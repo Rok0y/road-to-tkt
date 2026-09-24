@@ -47,8 +47,12 @@ export default function App() {
 
   const closeSheet = useCallback(() => setSheet(null), [])
   const demo = useCallback(async () => {
-    await loadDemoData()
-    setTab('home')
+    try {
+      await loadDemoData()
+      setTab('home')
+    } catch (err) {
+      alert(`Impossible de charger la démo : ${(err as Error).message}`)
+    }
   }, [])
 
   // Chargement initial d'IndexedDB (quelques ms) : on évite un flash de l'écran d'accueil vide.
