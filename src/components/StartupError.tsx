@@ -12,8 +12,11 @@ export function StartupError({ error, storage }: { error: unknown; storage?: boo
         </h1>
         {storage ? (
           <>
-            <p>Safari empêche l'app d'enregistrer tes données sur l'appareil. Pour corriger :</p>
+            <p>Le navigateur empêche l'app d'enregistrer tes données sur l'appareil. Pour corriger :</p>
             <ol style={{ paddingLeft: 20, lineHeight: 1.6 }}>
+              <li>
+                Ouvre la page dans <strong>Safari</strong>, pas depuis Messenger, Instagram ou une autre app.
+              </li>
               <li>
                 Réglages → <strong>Apps → Safari</strong> : désactive <strong>« Bloquer tous les cookies »</strong>.
               </li>
