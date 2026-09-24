@@ -28,7 +28,7 @@ export function Gauge({ weight, progress, reached }: Props) {
   const start = -SWEEP / 2
   const end = start + SWEEP * Math.max(0.001, progress)
   return (
-    <div style={{ position: 'relative', width: SIZE, maxWidth: '100%', margin: '0 auto' }}>
+    <div style={{ position: 'relative', width: 228, maxWidth: '68%', margin: '0 auto' }}>
       <svg viewBox={`0 0 ${SIZE} ${SIZE}`} width="100%" role="img" aria-label={`Progression ${Math.round(progress * 100)} %`}>
         <defs>
           <linearGradient id="gauge-grad" x1="0" y1="1" x2="1" y2="0">
@@ -70,7 +70,7 @@ export function Gauge({ weight, progress, reached }: Props) {
         <span className="small muted" style={{ fontWeight: 600 }}>
           Poids · min 7 j
         </span>
-        <span className="num" style={{ fontSize: 56, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1.05 }}>
+        <span className="num" style={{ fontSize: 50, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1.05 }}>
           {fmtNumber(weight)}
         </span>
         <span className="muted" style={{ fontWeight: 600 }}>

@@ -1,4 +1,4 @@
-export type Tab = 'home' | 'chart' | 'plan' | 'photos' | 'settings'
+export type Tab = 'home' | 'plan' | 'photos' | 'settings'
 
 const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' } as const
 
@@ -9,12 +9,6 @@ const ICONS: Record<Tab, React.ReactNode> = {
       <path d="M12 12.5l3.5-3.5" />
       <circle cx="12" cy="13" r="1.3" fill="currentColor" />
       <path d="M4 19.5h16" />
-    </svg>
-  ),
-  chart: (
-    <svg viewBox="0 0 24 24" {...stroke}>
-      <path d="M4 4v16h16" />
-      <path d="M7.5 9l3.5 3.5 3-2.5 4.5 5" />
     </svg>
   ),
   plan: (
@@ -41,7 +35,6 @@ const ICONS: Record<Tab, React.ReactNode> = {
 
 const LABELS: Record<Tab, string> = {
   home: 'Accueil',
-  chart: 'Graphique',
   plan: 'Plan',
   photos: 'Photos',
   settings: 'Réglages',

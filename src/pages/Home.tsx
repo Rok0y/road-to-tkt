@@ -2,8 +2,9 @@ import { useState } from 'react'
 import type { Entry, Program } from '../types'
 import type { Stats } from '../hooks'
 import { Gauge } from '../components/Gauge'
-import { EmptyState, PageHeader } from '../components/ui'
-import { bmi, bmiCategory, projectDate, weightForBmi } from '../lib/calc'
+import { EmptyState, PageHeader, Segmented } from '../components/ui'
+import { WeightChart } from '../components/WeightChart'
+import { bmi, bmiCategory, projectDate, weightForBmi, type Granularity } from '../lib/calc'
 import { capitalize, fmtDate, fmtDelta, fmtKg, fmtNumber } from '../lib/format'
 
 interface Props {
@@ -18,8 +19,34 @@ interface Props {
   onDemo: () => void
 }
 
+const GRANULARITIES: { value: Granularity; label: string }[] = [
+  { value: 'day', label: 'Jour' },
+  { value: 'week', label: 'Semaine' },
+  { value: 'month', label: 'Mois' },
+  { value: 'year', label: 'Année' },
+]
+
+function loadGranularity(): Granularity {
+  try {
+    const v = localStorage.getItem('chart-granularity')
+    if (v && GRANULARITIES.some((o) => o.value === v)) return v as Granularity
+  } catch {
+    /* stockage indisponible */
+  }
+  return 'day'
+}
+
 export function Home({ program, entries, stats, photoDates, today, onAdd, onEdit, onSetup, onDemo }: Props) {
   const [showAll, setShowAll] = useState(false)
+  const [granularity, setGranularity] = useState<Granularity>(loadGranularity)
+  const changeGranularity = (g: Granularity) => {
+    setGranularity(g)
+    try {
+      localStorage.setItem('chart-granularity', g)
+    } catch {
+      /* ignore */
+    }
+  }
   const todayEntry = entries.find((e) => e.date === today)
 
   const header = (
@@ -70,13 +97,18 @@ export function Home({ program, entries, stats, photoDates, today, onAdd, onEdit
     <div className="page">
       {header}
 
-      <div className="card" style={{ paddingTop: 20 }}>
+      {/* Jauge au centre, repères aux quatre coins (le cercle laisse les coins libres). */}
+      <div className="card" style={{ position: 'relative', padding: '18px 14px 14px' }}>
         <Gauge weight={stats.weight} progress={stats.progress} reached={stats.reached} />
-        <div className="grid-3" style={{ marginTop: 14, textAlign: 'center' }}>
-          <Mini label="Départ" value={fmtKg(program.startWeight)} />
-          <Mini label={lost <= 0 ? 'Perdu' : 'Pris'} value={fmtDelta(lost)} tone={lost * (program.targetWeight - program.startWeight) > 0 ? 'good' : lost === 0 ? undefined : 'bad'} />
-          <Mini label="Reste" value={fmtKg(Math.abs(remaining))} />
-        </div>
+        <Corner at="top-left" label="Départ" value={fmtKg(program.startWeight)} />
+        <Corner at="top-right" label="Objectif" value={fmtKg(program.targetWeight)} />
+        <Corner
+          at="bottom-left"
+          label={lost <= 0 ? 'Perdu' : 'Pris'}
+          value={fmtDelta(lost)}
+          tone={lost * (program.targetWeight - program.startWeight) > 0 ? 'good' : lost === 0 ? undefined : 'bad'}
+        />
+        <Corner at="bottom-right" label="Reste" value={fmtKg(Math.abs(remaining))} />
       </div>
 
       <div className="grid-2" style={{ marginTop: 12 }}>
@@ -122,6 +154,22 @@ export function Home({ program, entries, stats, photoDates, today, onAdd, onEdit
         {todayEntry ? `Pesée du jour : ${fmtKg(todayEntry.weight)} · Modifier` : '＋ Ajouter la pesée du jour'}
       </button>
 
+      {entries.length > 0 && (
+        <>
+          <h2 className="section-title">Évolution</h2>
+          <Segmented value={granularity} options={GRANULARITIES} onChange={changeGranularity} />
+          <div className="card" style={{ marginTop: 10, padding: '14px 10px 8px' }}>
+            <WeightChart
+              program={program}
+              entries={entries}
+              milestones={stats.milestones}
+              granularity={granularity}
+              today={today}
+            />
+          </div>
+        </>
+      )}
+
       <h2 className="section-title">Historique</h2>
       {history.length === 0 ? (
         <div className="card muted small" style={{ textAlign: 'center' }}>
@@ -160,11 +208,14 @@ export function Home({ program, entries, stats, photoDates, today, onAdd, onEdit
   )
 }
 
-function Mini({ label, value, tone }: { label: string; value: string; tone?: 'good' | 'bad' }) {
+type CornerPos = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+
+function Corner({ at, label, value, tone }: { at: CornerPos; label: string; value: string; tone?: 'good' | 'bad' }) {
+  const [v, h] = at.split('-') as ['top' | 'bottom', 'left' | 'right']
   return (
-    <div>
+    <div style={{ position: 'absolute', [v]: 14, [h]: 16, textAlign: h }}>
       <div className="small muted">{label}</div>
-      <div className={`num ${tone ?? ''}`} style={{ fontWeight: 600 }}>
+      <div className={`num ${tone ?? ''}`} style={{ fontWeight: 700, fontSize: 17 }}>
         {value}
       </div>
     </div>
@@ -186,8 +237,8 @@ function BmiBar({ value }: { value: number }) {
   ]
   let from = min
   return (
-    <div style={{ position: 'relative', marginTop: 10, height: 12 }}>
-      <div style={{ display: 'flex', gap: 2, height: 6, marginTop: 3 }}>
+    <div style={{ position: 'relative', marginTop: 12, height: 16 }}>
+      <div style={{ position: 'absolute', left: 0, right: 0, top: '50%', transform: 'translateY(-50%)', display: 'flex', gap: 2, height: 6 }}>
         {bands.map((b) => {
           const w = pct(b.to) - pct(from)
           from = b.to
@@ -197,13 +248,15 @@ function BmiBar({ value }: { value: number }) {
       <div
         style={{
           position: 'absolute',
-          top: 0,
-          left: `calc(${pct(value)}% - 6px)`,
-          width: 12,
-          height: 12,
-          borderRadius: 6,
+          top: '50%',
+          left: `${pct(value)}%`,
+          width: 16,
+          height: 16,
+          transform: 'translate(-50%, -50%)',
+          borderRadius: 8,
           background: '#fff',
-          border: '2.5px solid var(--label)',
+          border: '3px solid var(--label)',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
         }}
       />
     </div>

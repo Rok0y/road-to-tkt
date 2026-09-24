@@ -4,13 +4,12 @@ import { EntrySheet } from './components/EntrySheet'
 import { useEntries, usePhotoDates, useProgram, useStats, useToday } from './hooks'
 import { loadDemoData } from './db/demo'
 import { Home } from './pages/Home'
-import { ChartPage } from './pages/ChartPage'
 import { Plan } from './pages/Plan'
 import { Photos } from './pages/Photos'
 import { Settings } from './pages/Settings'
 import type { Entry } from './types'
 
-const TABS: Tab[] = ['home', 'chart', 'plan', 'photos', 'settings']
+const TABS: Tab[] = ['home', 'plan', 'photos', 'settings']
 
 function initialTab(): Tab {
   try {
@@ -73,7 +72,6 @@ export default function App() {
           onDemo={demo}
         />
       )}
-      {tab === 'chart' && <ChartPage program={program} entries={entries} stats={stats} today={today} />}
       {tab === 'plan' && <Plan program={program} entries={entries} stats={stats} today={today} />}
       {tab === 'photos' && <Photos entries={entries} />}
       {tab === 'settings' && <Settings program={program} entries={entries} onDemo={demo} />}
