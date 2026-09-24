@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Program } from '../types'
+import type { Entry, Program } from '../types'
 import { clearAll, saveProgram } from '../db/db'
 import { buildBackup, restoreBackup, shareOrDownload } from '../db/backup'
 import { PageHeader } from '../components/ui'
+import { ImportSheet } from '../components/ImportSheet'
 import { addDays, todayISO } from '../lib/dates'
 import { fmtNumber, parseDecimal } from '../lib/format'
 
 interface Props {
   program: Program | null
-  entryCount: number
+  entries: Entry[]
   onDemo: () => Promise<void>
 }
 
@@ -21,27 +22,31 @@ interface Form {
   targetRatePerWeek: string
 }
 
-function toForm(p: Program | null): Form {
-  const today = todayISO()
+/** Sans programme, on part de la première pesée connue (ex. données importées). */
+function toForm(p: Program | null, first?: Entry): Form {
+  const start = p?.startDate ?? first?.date ?? todayISO()
   return {
     heightCm: p ? String(p.heightCm) : '',
-    startDate: p?.startDate ?? today,
-    endDate: p?.endDate ?? addDays(today, 7 * 26),
-    startWeight: p ? fmtNumber(p.startWeight) : '',
+    startDate: start,
+    endDate: p?.endDate ?? addDays(start, 7 * 26),
+    startWeight: p ? fmtNumber(p.startWeight) : first ? fmtNumber(first.weight) : '',
     targetWeight: p ? fmtNumber(p.targetWeight) : '',
     targetRatePerWeek: p ? fmtNumber(p.targetRatePerWeek, 2) : '0,35',
   }
 }
 
-export function Settings({ program, entryCount, onDemo }: Props) {
-  const [form, setForm] = useState<Form>(() => toForm(program))
+export function Settings({ program, entries, onDemo }: Props) {
+  const entryCount = entries.length
+  const first = entries[0]
+  const [form, setForm] = useState<Form>(() => toForm(program, first))
+  const [importing, setImporting] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const [usage, setUsage] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    setForm(toForm(program))
-  }, [program])
+    setForm(toForm(program, first))
+  }, [program, first])
   useEffect(() => {
     navigator.storage?.estimate?.().then((e) => {
       if (e.usage !== undefined) setUsage(`${fmtNumber(e.usage / 1024 / 1024)} Mo utilisés`)
@@ -98,7 +103,9 @@ export function Settings({ program, entryCount, onDemo }: Props) {
     }
   }
 
-  const dirty = JSON.stringify(form) !== JSON.stringify(toForm(program))
+  // Sans programme, le formulaire pré-rempli est enregistrable tel quel.
+  const dirty = !program || JSON.stringify(form) !== JSON.stringify(toForm(program))
+  const touched = JSON.stringify(form) !== JSON.stringify(toForm(program, first))
 
   return (
     <div className="page">
@@ -115,7 +122,7 @@ export function Settings({ program, entryCount, onDemo }: Props) {
         <Field id="tw" label="Objectif" unit="kg" value={form.targetWeight} onChange={set('targetWeight')} numeric />
         <Field id="tr" label="Rythme visé" unit="kg/sem" value={form.targetRatePerWeek} onChange={set('targetRatePerWeek')} numeric />
       </div>
-      {errors.length > 0 && dirty && <p className="section-footer bad">{errors[0]}</p>}
+      {errors.length > 0 && touched && <p className="section-footer bad">{errors[0]}</p>}
       <button className="btn" style={{ marginTop: 12 }} disabled={errors.length > 0 || !dirty} onClick={save}>
         {program ? 'Enregistrer les modifications' : 'Créer mon programme'}
       </button>
@@ -133,6 +140,9 @@ export function Settings({ program, entryCount, onDemo }: Props) {
         </button>
         <button className="row link" onClick={() => fileRef.current?.click()}>
           Importer une sauvegarde…
+        </button>
+        <button className="row link" onClick={() => setImporting(true)}>
+          Importer des pesées (CSV d'une autre app)…
         </button>
       </div>
       <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={(e) => {
@@ -163,6 +173,18 @@ export function Settings({ program, entryCount, onDemo }: Props) {
           Effacer toutes les données
         </button>
       </div>
+
+      {importing && (
+        <ImportSheet
+          existing={entries}
+          onClose={() => setImporting(false)}
+          onDone={(message) => {
+            setImporting(false)
+            setStatus(program ? message : `${message} — complète maintenant ton programme ci-dessus.`)
+            window.scrollTo(0, 0)
+          }}
+        />
+      )}
 
       <h2 className="section-title">Installer sur iPhone / iPad</h2>
       <div className="card small">

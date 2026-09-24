@@ -76,7 +76,7 @@ export default function App() {
       {tab === 'chart' && <ChartPage program={program} entries={entries} stats={stats} today={today} />}
       {tab === 'plan' && <Plan program={program} entries={entries} stats={stats} today={today} />}
       {tab === 'photos' && <Photos entries={entries} />}
-      {tab === 'settings' && <Settings program={program} entryCount={entries.length} onDemo={demo} />}
+      {tab === 'settings' && <Settings program={program} entries={entries} onDemo={demo} />}
 
       <TabBar tab={tab} onChange={setTab} />
 
