@@ -16,6 +16,37 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Filet de sécurité : si l'app n'a rien affiché après 5 s (ex. iOS trop ancien pour le code),
+      // on montre l'erreur et la version du navigateur au lieu d'une page blanche.
+      ;(function () {
+        var errors = []
+        window.addEventListener('error', function (e) {
+          errors.push(e.message || String(e.error || e))
+        })
+        window.addEventListener('unhandledrejection', function (e) {
+          errors.push(String(e.reason))
+        })
+        setTimeout(function () {
+          var root = document.getElementById('root')
+          if (!root || root.hasChildNodes()) return
+          var box = document.createElement('div')
+          box.style.cssText = 'font:15px -apple-system,system-ui,sans-serif;padding:48px 20px;color:#1c1c1e'
+          var title = document.createElement('h1')
+          title.textContent = "L'app n'a pas pu démarrer"
+          title.style.cssText = 'font-size:22px'
+          var detail = document.createElement('pre')
+          detail.style.cssText = 'white-space:pre-wrap;word-break:break-word;font-size:12px;background:#eeeef3;padding:10px;border-radius:8px'
+          detail.textContent = (errors.join('\n') || 'Aucune erreur signalée') + '\n\n' + navigator.userAgent
+          var hint = document.createElement('p')
+          hint.textContent = 'Envoie une capture de cet écran pour le diagnostic.'
+          box.appendChild(title)
+          box.appendChild(hint)
+          box.appendChild(detail)
+          root.appendChild(box)
+        }, 5000)
+      })()
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
