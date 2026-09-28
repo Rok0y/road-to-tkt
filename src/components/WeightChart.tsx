@@ -40,10 +40,11 @@ const Y_STEPS = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 50, 100]
 const MIN_Y_RANGE = 7.5
 
 /** Largeur de la fenêtre visible et part de futur, par raccourci de zoom (en jours). */
-const PRESETS: Record<Exclude<Granularity, 'year'>, { span: number; ahead: number }> = {
-  day: { span: 30, ahead: 4 },
-  week: { span: 112, ahead: 21 },
-  month: { span: 400, ahead: 60 },
+const PRESETS: Record<Granularity, number> = {
+  day: 30,
+  week: 112, // 16 semaines
+  month: 183, // 6 mois
+  year: 365, // 12 derniers mois
 }
 
 const ms = (iso: ISODate) => toLocalDate(iso).getTime()
@@ -184,18 +185,18 @@ export function WeightChart({ program, entries, milestones, granularity, today }
   // ---------- Limites de navigation et vue par défaut de chaque raccourci ----------
   const first = entries.reduce((m, e) => (e.date < m ? e.date : m), program.startDate)
   const bounds = useMemo(() => {
-    const lo = ms(addDays(first, -10))
+    const lo = ms(addDays(first, -15))
     const hi = Math.max(ms(addDays(program.endDate, 20)), ms(addDays(today, 30)))
     return { lo, hi }
   }, [first, program.endDate, today])
 
   const home = useMemo<View>(() => {
-    if (granularity === 'year') return { min: bounds.lo, max: bounds.hi }
-    const z = PRESETS[granularity]
-    // Pas de grand vide à gauche : la fenêtre commence au plus tôt une semaine avant les données.
-    const max = Math.max(ms(addDays(today, z.ahead)), ms(addDays(first, z.span - 7)))
-    return { min: max - z.span * DAY, max }
-  }, [granularity, today, first, bounds])
+    // Aujourd'hui tout à droite, le passé à gauche ; si l'historique est plus court que la vue,
+    // la fenêtre se réduit à l'historique pour que les pesées occupent toute la largeur.
+    const shown = Math.min(PRESETS[granularity] * DAY, ms(today) - ms(first))
+    const margin = Math.max(DAY, shown * 0.025) // un peu d'air pour que les points ne touchent pas les bords
+    return { min: ms(today) - shown - margin, max: ms(today) + margin }
+  }, [granularity, today, first])
 
   // ---------- En-tête : point sélectionné, sinon dernier point de tendance ----------
   const latest = series.trend[series.trend.length - 1]
@@ -414,16 +415,19 @@ export function WeightChart({ program, entries, milestones, granularity, today }
         if (shown && shown.t >= min && shown.t <= max) {
           const x = scales.x.getPixelForValue(shown.t)
           const y = scales.y.getPixelForValue(shown.y)
-          ctx.strokeStyle = 'rgba(28,28,30,0.35)'
+          const color = shown.kind === 'trend' ? BLUE : TEAL
+          ctx.strokeStyle = color // trait fin de la couleur du point, distinct du quadrillage gris
+          ctx.globalAlpha = 0.6
           ctx.lineWidth = 1
           ctx.setLineDash([])
           ctx.beginPath()
-          ctx.moveTo(x, area.top)
-          ctx.lineTo(x, area.bottom)
+          ctx.moveTo(Math.round(x) + 0.5, area.top)
+          ctx.lineTo(Math.round(x) + 0.5, area.bottom)
           ctx.stroke()
+          ctx.globalAlpha = 1
           ctx.beginPath()
           ctx.arc(x, y, 6, 0, Math.PI * 2)
-          ctx.fillStyle = shown.kind === 'trend' ? BLUE : TEAL
+          ctx.fillStyle = color
           ctx.fill()
           ctx.lineWidth = 2.5
           ctx.strokeStyle = '#fff'
