@@ -27,6 +27,7 @@ const GRID = 'rgba(60,60,67,0.10)'
 const INK = 'rgba(60,60,67,0.62)'
 const DAY = 86_400_000
 const MIN_SPAN = 10 * DAY // zoom maximal
+const MIN_Y_RANGE = 9 // kg : hauteur minimale de l'échelle verticale
 
 /** Largeur de la fenêtre visible et part de futur, par raccourci de zoom (en jours). */
 const PRESETS: Record<Exclude<Granularity, 'year'>, { span: number; ahead: number }> = {
@@ -209,7 +210,15 @@ export function WeightChart({ program, entries, milestones, granularity, today }
     const lo = Math.min(...ys)
     const hi = Math.max(...ys)
     const pad = Math.max(0.8, (hi - lo) * 0.1)
-    return { min: lo - pad, max: hi + pad * 2 } // marge haute pour les étiquettes
+    let bottom = lo - pad
+    let top = hi + pad * 2 // marge haute pour les étiquettes
+    // Hauteur minimale : les écarts d'un jour à l'autre restent proportionnés, même en zoom avant.
+    const extra = MIN_Y_RANGE - (top - bottom)
+    if (extra > 0) {
+      bottom -= extra / 2
+      top += extra / 2
+    }
+    return { min: bottom, max: top }
   }
 
   function frame(now: number) {

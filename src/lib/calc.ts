@@ -199,9 +199,9 @@ export interface Point {
 }
 
 /** Demi-fenêtre minimale de la tendance (jours), élargie si les pesées sont espacées. */
-export const TREND_HALF_WINDOW = 7
+export const TREND_HALF_WINDOW = 5
 /** Nombre minimal de pesées prises en compte autour de chaque jour. */
-export const TREND_NEIGHBOURS = 8
+export const TREND_NEIGHBOURS = 6
 
 /**
  * Courbe de tendance, un point par jour de la première à la dernière pesée.
