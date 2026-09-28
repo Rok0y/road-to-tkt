@@ -23,7 +23,7 @@ ChartJS.register(LineController, LineElement, PointElement, LinearScale, TimeSca
 const BLUE = '#0a84ff'
 const BRONZE = '#b5651d'
 const TEAL = '#12a594'
-const GRID = 'rgba(60,60,67,0.10)'
+const GRID = 'rgba(60,60,67,0.18)' // quadrillage pointillé
 const INK = 'rgba(60,60,67,0.62)'
 const DAY = 86_400_000
 const MIN_SPAN = 10 * DAY // zoom maximal
@@ -85,6 +85,31 @@ function lowerBound(pts: Pt[], t: number) {
     else hi = mid
   }
   return lo
+}
+
+type GridUnit = 'day' | 'week' | 'month' | 'year'
+
+/** Unité du quadrillage vertical selon la largeur visible, calée sur les raccourcis (30 j, 16 sem., 13 mois). */
+function gridUnit(spanDays: number): GridUnit {
+  return spanDays <= 60 ? 'day' : spanDays <= 250 ? 'week' : spanDays <= 1500 ? 'month' : 'year'
+}
+
+/** Débuts de jour / semaine (lundi) / mois / année compris dans [min, max]. */
+function unitBoundaries(min: number, max: number, unit: GridUnit): number[] {
+  const d = new Date(min)
+  d.setHours(0, 0, 0, 0)
+  if (unit === 'week') d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+  if (unit === 'month' || unit === 'year') d.setDate(1)
+  if (unit === 'year') d.setMonth(0)
+  const out: number[] = []
+  for (; d.getTime() <= max; ) {
+    if (d.getTime() >= min) out.push(d.getTime())
+    if (unit === 'day') d.setDate(d.getDate() + 1)
+    else if (unit === 'week') d.setDate(d.getDate() + 7)
+    else if (unit === 'month') d.setMonth(d.getMonth() + 1)
+    else d.setFullYear(d.getFullYear() + 1)
+  }
+  return out
 }
 
 /**
@@ -260,7 +285,9 @@ export function WeightChart({ program, entries, milestones, granularity, today }
     const scales = chart.options.scales!
     Object.assign(scales.x!, { min: e.view.min, max: e.view.max })
     Object.assign(scales.y!, { min: e.y.min, max: e.y.max })
-    Object.assign(scales.y!.ticks!, { stepSize: [0.5, 1, 2, 5, 10, 20, 50].find((s) => range / s <= 5) ?? 100 })
+    // Graduations aussi serrées que la hauteur le permet (≥ 22 px entre deux lignes) : 1 kg en vue jour.
+    const lines = Math.max(3, chart.chartArea.height / 22)
+    Object.assign(scales.y!.ticks!, { stepSize: [0.5, 1, 2, 5, 10, 20, 50].find((s) => range / s <= lines) ?? 100 })
     chart.update('none')
 
     if (busy) e.raf = requestAnimationFrame(frame)
@@ -290,27 +317,27 @@ export function WeightChart({ program, entries, milestones, granularity, today }
     const decorations: Plugin<'line'> = {
       id: 'decorations',
       beforeDatasetsDraw(chart) {
-        // Séparateurs de mois (zoom avant) ou d'années (zoom intermédiaire).
+        // Quadrillage vertical pointillé à l'unité du zoom (jour / semaine / mois / année),
+        // et séparateurs bleus à l'unité au-dessus (mois, ou années en vue mois).
         const { ctx, chartArea: area, scales } = chart
         const { min, max } = scales.x
-        const spanDays = (max - min) / DAY
-        if (spanDays > 800) return
-        ctx.save()
-        ctx.strokeStyle = 'rgba(10,132,255,0.45)'
-        ctx.setLineDash([4, 4])
-        ctx.lineWidth = 1
-        const d = new Date(min)
-        const byYear = spanDays > 200
-        const cursor = byYear ? new Date(d.getFullYear() + 1, 0, 1) : new Date(d.getFullYear(), d.getMonth() + 1, 1)
-        while (cursor.getTime() <= max) {
-          const x = Math.round(scales.x.getPixelForValue(cursor.getTime())) + 0.5
+        const unit = gridUnit((max - min) / DAY)
+        const lines = (u: GridUnit, color: string, dash: number[]) => {
+          ctx.strokeStyle = color
+          ctx.setLineDash(dash)
           ctx.beginPath()
-          ctx.moveTo(x, area.top)
-          ctx.lineTo(x, area.bottom)
+          for (const t of unitBoundaries(min, max, u)) {
+            const x = Math.round(scales.x.getPixelForValue(t)) + 0.5
+            ctx.moveTo(x, area.top)
+            ctx.lineTo(x, area.bottom)
+          }
           ctx.stroke()
-          if (byYear) cursor.setFullYear(cursor.getFullYear() + 1)
-          else cursor.setMonth(cursor.getMonth() + 1)
         }
+        ctx.save()
+        ctx.lineWidth = 1
+        lines(unit, GRID, [2, 3])
+        const major = unit === 'day' || unit === 'week' ? 'month' : unit === 'month' ? 'year' : null
+        if (major) lines(major, 'rgba(10,132,255,0.45)', [4, 4])
         ctx.restore()
       },
       afterDatasetsDraw(chart) {
@@ -437,7 +464,7 @@ export function WeightChart({ program, entries, milestones, granularity, today }
           x: {
             type: 'time',
             adapters: { date: { locale: fr } },
-            grid: { color: GRID },
+            grid: { display: false }, // quadrillage vertical dessiné par le plugin, à l'unité du zoom
             border: { display: false },
             afterBuildTicks: (scale) => {
               const { ticks, fmt } = timeTicks(scale.min, scale.max)
@@ -455,7 +482,7 @@ export function WeightChart({ program, entries, milestones, granularity, today }
           y: {
             position: 'right',
             grid: { color: GRID },
-            border: { display: false },
+            border: { display: false, dash: [2, 3] }, // pointillés, comme le quadrillage vertical
             afterFit: (scale) => {
               scale.width = 34 // largeur fixe : la zone de tracé ne bouge pas pendant le défilement
             },
@@ -463,7 +490,10 @@ export function WeightChart({ program, entries, milestones, granularity, today }
               color: INK,
               font: { size: 11 },
               includeBounds: false,
-              callback: (v) => fmtNumber(Number(v), Number.isInteger(Number(v)) ? 0 : 1),
+              callback: (v) => {
+                const kg = Math.round(Number(v) * 10) / 10 // absorbe les erreurs d'arrondi des graduations
+                return fmtNumber(kg, Number.isInteger(kg) ? 0 : 1)
+              },
             },
           },
         },
