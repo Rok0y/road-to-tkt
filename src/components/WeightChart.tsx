@@ -23,11 +23,21 @@ ChartJS.register(LineController, LineElement, PointElement, LinearScale, TimeSca
 const BLUE = '#0a84ff'
 const BRONZE = '#b5651d'
 const TEAL = '#12a594'
-const GRID = 'rgba(60,60,67,0.18)' // quadrillage pointillé
 const INK = 'rgba(60,60,67,0.62)'
 const DAY = 86_400_000
 const MIN_SPAN = 10 * DAY // zoom maximal
-const MIN_Y_RANGE = 9 // kg : hauteur minimale de l'échelle verticale
+
+// Quadrillage, même code dans toutes les vues : jours fins, semaines en gras, mois en pointillés épais.
+// Les lignes horizontales reprennent le style des jours.
+const LINE_DAY = { width: 1, color: 'rgba(60,60,67,0.13)', dash: [] as number[] }
+const LINE_WEEK = { width: 1.5, color: 'rgba(60,60,67,0.32)', dash: [] as number[] }
+const LINE_MONTH = { width: 2, color: 'rgba(60,60,67,0.45)', dash: [5, 4] }
+
+/** Échelle verticale : toujours 5 lignes, espacées d'un de ces écarts (kg). */
+const Y_LINES = 5
+const Y_STEPS = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 50, 100]
+/** Hauteur minimale utile (kg) : donne 10 kg de haut en vue jour (5 lignes tous les 2 kg). */
+const MIN_Y_RANGE = 7.5
 
 /** Largeur de la fenêtre visible et part de futur, par raccourci de zoom (en jours). */
 const PRESETS: Record<Exclude<Granularity, 'year'>, { span: number; ahead: number }> = {
@@ -88,11 +98,6 @@ function lowerBound(pts: Pt[], t: number) {
 }
 
 type GridUnit = 'day' | 'week' | 'month' | 'year'
-
-/** Unité du quadrillage vertical selon la largeur visible, calée sur les raccourcis (30 j, 16 sem., 13 mois). */
-function gridUnit(spanDays: number): GridUnit {
-  return spanDays <= 60 ? 'day' : spanDays <= 250 ? 'week' : spanDays <= 1500 ? 'month' : 'year'
-}
 
 /** Débuts de jour / semaine (lundi) / mois / année compris dans [min, max]. */
 function unitBoundaries(min: number, max: number, unit: GridUnit): number[] {
@@ -204,6 +209,7 @@ export function WeightChart({ program, entries, milestones, granularity, today }
   const engine = useRef({
     view: home,
     y: null as { min: number; max: number } | null,
+    yStep: 2, // écart entre les lignes horizontales (kg)
     raf: 0,
     last: 0,
     velocity: 0, // ms de temps par ms réelle (inertie après un glisser)
@@ -219,8 +225,27 @@ export function WeightChart({ program, entries, milestones, granularity, today }
     return { min, max: min + span }
   }
 
-  /** Échelle verticale qui cadre ce qui est visible, avec de la marge pour les étiquettes. */
-  function yTarget({ min, max }: View) {
+  /**
+   * Échelle verticale qui cadre ce qui est visible (avec de la marge pour les étiquettes),
+   * calée pour afficher exactement 5 lignes : la fenêtre fait 5 écarts de haut et les lignes
+   * tombent à mi-hauteur de chaque tranche, sur des multiples ronds de l'écart.
+   */
+  function yTarget(view: View) {
+    const { min: bottom, max: top } = yFit(view)
+    for (const step of Y_STEPS) {
+      // Lignes k·step … (k+4)·step, fenêtre [(k − ½)·step, (k + 4,5)·step] : k doit contenir [bottom, top].
+      const kMin = Math.ceil(top / step - (Y_LINES - 0.5))
+      const kMax = Math.floor(bottom / step + 0.5)
+      if (kMin > kMax) continue
+      const centered = Math.round((bottom + top) / 2 / step - (Y_LINES - 1) / 2)
+      const k = Math.min(kMax, Math.max(kMin, centered))
+      return { min: (k - 0.5) * step, max: (k + Y_LINES - 0.5) * step, step }
+    }
+    return { min: bottom, max: top, step: Y_STEPS[Y_STEPS.length - 1] }
+  }
+
+  /** Étendue des données visibles, avec marges et hauteur minimale. */
+  function yFit({ min, max }: View) {
     const { series } = live.current
     const ys: number[] = []
     for (const pts of [series.trend, series.dots]) {
@@ -234,9 +259,9 @@ export function WeightChart({ program, entries, milestones, granularity, today }
     if (!ys.length) ys.push(program.startWeight, program.targetWeight)
     const lo = Math.min(...ys)
     const hi = Math.max(...ys)
-    const pad = Math.max(0.8, (hi - lo) * 0.1)
+    const pad = Math.max(0.6, (hi - lo) * 0.06)
     let bottom = lo - pad
-    let top = hi + pad * 2 // marge haute pour les étiquettes
+    let top = hi + pad * 1.5 // marge haute pour les étiquettes
     // Hauteur minimale : les écarts d'un jour à l'autre restent proportionnés, même en zoom avant.
     const extra = MIN_Y_RANGE - (top - bottom)
     if (extra > 0) {
@@ -273,6 +298,7 @@ export function WeightChart({ program, entries, milestones, granularity, today }
     e.view = clampView(e.view)
 
     const target = yTarget(e.view)
+    e.yStep = target.step
     if (!e.y) e.y = target
     else {
       const k = 1 - Math.exp(-dt / 90)
@@ -281,20 +307,16 @@ export function WeightChart({ program, entries, milestones, granularity, today }
       else e.y = target
     }
 
-    const range = e.y.max - e.y.min
     const scales = chart.options.scales!
     Object.assign(scales.x!, { min: e.view.min, max: e.view.max })
     Object.assign(scales.y!, { min: e.y.min, max: e.y.max })
-    // Graduations aussi serrées que la hauteur le permet (≥ 22 px entre deux lignes) : 1 kg en vue jour.
-    const lines = Math.max(3, chart.chartArea.height / 22)
-    Object.assign(scales.y!.ticks!, { stepSize: [0.5, 1, 2, 5, 10, 20, 50].find((s) => range / s <= lines) ?? 100 })
     chart.update('none')
 
     if (busy) e.raf = requestAnimationFrame(frame)
     else {
       e.last = 0
       if (!e.touching) {
-        const { home } = live.current
+        const home = clampView(live.current.home)
         setOffHome(Math.abs(e.view.min - home.min) > DAY / 2 || Math.abs(e.view.max - home.max) > DAY / 2)
       }
     }
@@ -317,27 +339,32 @@ export function WeightChart({ program, entries, milestones, granularity, today }
     const decorations: Plugin<'line'> = {
       id: 'decorations',
       beforeDatasetsDraw(chart) {
-        // Quadrillage vertical pointillé à l'unité du zoom (jour / semaine / mois / année),
-        // et séparateurs bleus à l'unité au-dessus (mois, ou années en vue mois).
+        // Quadrillage vertical, même code dans toutes les vues. Un niveau n'est tracé que s'il reste
+        // lisible (assez de pixels entre deux lignes) ; une ligne de mois l'emporte sur une semaine ou un jour.
         const { ctx, chartArea: area, scales } = chart
         const { min, max } = scales.x
-        const unit = gridUnit((max - min) / DAY)
-        const lines = (u: GridUnit, color: string, dash: number[]) => {
-          ctx.strokeStyle = color
-          ctx.setLineDash(dash)
+        const pxPerDay = area.width / ((max - min) / DAY)
+        const months = unitBoundaries(min, max, pxPerDay * 30 >= 4 ? 'month' : 'year')
+        const taken = new Set(months)
+        const weeks = pxPerDay * 7 >= 14 ? unitBoundaries(min, max, 'week').filter((t) => !taken.has(t)) : []
+        weeks.forEach((t) => taken.add(t))
+        const days = pxPerDay >= 5 ? unitBoundaries(min, max, 'day').filter((t) => !taken.has(t)) : []
+        const lines = (ts: number[], style: typeof LINE_DAY) => {
+          ctx.lineWidth = style.width
+          ctx.strokeStyle = style.color
+          ctx.setLineDash(style.dash)
           ctx.beginPath()
-          for (const t of unitBoundaries(min, max, u)) {
-            const x = Math.round(scales.x.getPixelForValue(t)) + 0.5
+          for (const t of ts) {
+            const x = Math.round(scales.x.getPixelForValue(t)) + (style.width % 2 ? 0.5 : 0) // trait net
             ctx.moveTo(x, area.top)
             ctx.lineTo(x, area.bottom)
           }
           ctx.stroke()
         }
         ctx.save()
-        ctx.lineWidth = 1
-        lines(unit, GRID, [2, 3])
-        const major = unit === 'day' || unit === 'week' ? 'month' : unit === 'month' ? 'year' : null
-        if (major) lines(major, 'rgba(10,132,255,0.45)', [4, 4])
+        lines(days, LINE_DAY)
+        lines(weeks, LINE_WEEK)
+        lines(months, LINE_MONTH)
         ctx.restore()
       },
       afterDatasetsDraw(chart) {
@@ -481,15 +508,21 @@ export function WeightChart({ program, entries, milestones, granularity, today }
           },
           y: {
             position: 'right',
-            grid: { color: GRID },
-            border: { display: false, dash: [2, 3] }, // pointillés, comme le quadrillage vertical
+            grid: { color: LINE_DAY.color, lineWidth: LINE_DAY.width }, // lignes pleines fines, comme les jours
+            border: { display: false },
             afterFit: (scale) => {
               scale.width = 34 // largeur fixe : la zone de tracé ne bouge pas pendant le défilement
+            },
+            afterBuildTicks: (scale) => {
+              // Multiples de l'écart choisi : exactement 5 lignes une fois l'échelle posée.
+              const step = engine.current.yStep
+              const ticks = []
+              for (let k = Math.ceil(scale.min / step); k * step <= scale.max; k++) ticks.push({ value: k * step })
+              scale.ticks = ticks
             },
             ticks: {
               color: INK,
               font: { size: 11 },
-              includeBounds: false,
               callback: (v) => {
                 const kg = Math.round(Number(v) * 10) / 10 // absorbe les erreurs d'arrondi des graduations
                 return fmtNumber(kg, Number.isInteger(kg) ? 0 : 1)
