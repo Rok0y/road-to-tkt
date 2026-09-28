@@ -1,7 +1,7 @@
 # Road to TKT
 
-PWA de suivi de poids (iPhone / iPad) : pesée quotidienne, poids affiché = minimum sur 7 jours, IMC, 10 paliers,
-graphiques jour / semaine / mois / année, plan (rythmes et projections), résumé hebdo, photos face / profil / dos
+PWA de suivi de poids (iPhone / iPad) : pesée quotidienne, poids affiché = minimum sur 7 jours, courbe de tendance robuste (LOWESS), IMC, 10 paliers,
+graphique à glisser / pincer (raccourcis jour / semaine / mois / année), plan (rythmes et projections), résumé hebdo, photos face / profil / dos
 avec comparateur avant / après. Les données restent sur l'appareil (IndexedDB).
 
 ## Développement

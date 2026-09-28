@@ -14,9 +14,10 @@ import {
   projectDate,
   rateForEndDate,
   smoothedWeight,
+  trendSeries,
   weeklySummary,
 } from './calc'
-import { diffDays, mondayOf } from './dates'
+import { addDays, diffDays, mondayOf } from './dates'
 
 const program: Program = {
   id: 'main',
@@ -137,5 +138,33 @@ describe('date de fin ↔ rythme visé', () => {
   it('refuse un rythme nul ou une fin avant le début', () => {
     expect(endDateForRate(110, 90, '2026-08-17', 0)).toBeNull()
     expect(rateForEndDate(110, 90, '2026-08-17', '2026-08-01')).toBeNull()
+  })
+})
+
+describe('courbe de tendance', () => {
+  // 40 jours de perte régulière (-0,1 kg/j) avec un bruit alterné de ±0,3 kg.
+  const days = Array.from({ length: 40 }, (_, i) => {
+    const date = addDays('2026-08-17', i)
+    return e(date, 110 - 0.1 * i + (i % 2 ? 0.3 : -0.3))
+  })
+  const truth = (date: string) => 110 - 0.1 * diffDays('2026-08-17', date)
+
+  it('donne un point par jour, de la première à la dernière pesée', () => {
+    const t = trendSeries([e('2026-08-17', 110), e('2026-08-20', 109), e('2026-08-27', 108)])
+    expect(t).toHaveLength(11)
+    expect(t[0].x).toBe('2026-08-17')
+    expect(t[10].x).toBe('2026-08-27')
+  })
+  it('lisse le bruit tout en restant proche des mesures', () => {
+    for (const p of trendSeries(days).slice(5, -5)) expect(Math.abs(p.y - truth(p.x))).toBeLessThan(0.15)
+  })
+  it('ignore une pesée aberrante', () => {
+    const spiked = days.map((d, i) => (i === 20 ? e(d.date, d.weight + 3) : d))
+    const p = trendSeries(spiked).find((p) => p.x === days[20].date)!
+    expect(Math.abs(p.y - truth(p.x))).toBeLessThan(0.2)
+  })
+  it('suit la pente jusqu’au bout, sans retard', () => {
+    const t = trendSeries(days)
+    expect(Math.abs(t[t.length - 1].y - truth(t[t.length - 1].x))).toBeLessThan(0.3)
   })
 })

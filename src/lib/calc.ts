@@ -1,5 +1,5 @@
 import type { Entry, ISODate, Program } from '../types'
-import { addDays, dayNumber, diffDays } from './dates'
+import { addDays, dayNumber, diffDays, fromDayNumber } from './dates'
 
 export const SMOOTHING_DAYS = 7
 export const CURRENT_RATE_DAYS = 14
@@ -198,9 +198,90 @@ export interface Point {
   y: number
 }
 
-/** Série « min 7 jours » évaluée à chaque date de pesée. */
-export function smoothedSeries(entries: Entry[]): Point[] {
-  return sortEntries(entries).map((e) => ({ x: e.date, y: smoothedWeight(entries, e.date)! }))
+/** Demi-fenêtre minimale de la tendance (jours), élargie si les pesées sont espacées. */
+export const TREND_HALF_WINDOW = 7
+/** Nombre minimal de pesées prises en compte autour de chaque jour. */
+export const TREND_NEIGHBOURS = 8
+
+/**
+ * Courbe de tendance, un point par jour de la première à la dernière pesée.
+ *
+ * Régression locale robuste (type LOWESS) : autour de chaque jour, on ajuste une droite
+ * sur les pesées voisines, pondérées par leur proximité (noyau tricube). Puis on repère
+ * les pesées très éloignées de la courbe (repas salé, pesée ratée…) et on refait
+ * l'ajustement en réduisant leur poids, deux fois. La courbe reste lisse, colle aux
+ * mesures et ne se laisse pas tirer par les valeurs extrêmes.
+ */
+export function trendSeries(entries: Entry[]): Point[] {
+  const sorted = sortEntries(entries)
+  const n = sorted.length
+  if (n < 3) return sorted.map((e) => ({ x: e.date, y: e.weight }))
+  const xs = sorted.map((e) => dayNumber(e.date))
+  const ys = sorted.map((e) => e.weight)
+  const robust = new Array<number>(n).fill(1)
+
+  /** Premier indice dont la date est ≥ d. */
+  const lowerBound = (d: number) => {
+    let lo = 0
+    let hi = n
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (xs[mid] < d) lo = mid + 1
+      else hi = mid
+    }
+    return lo
+  }
+
+  const fitAt = (d: number, useRobust: boolean): number => {
+    // Demi-fenêtre : au moins TREND_HALF_WINDOW jours, et assez large pour contenir
+    // TREND_NEIGHBOURS pesées (on étend vers la plus proche des deux extrémités).
+    let l = lowerBound(d) - 1
+    let r = l + 1
+    let reach = 0
+    for (let k = 0; k < Math.min(TREND_NEIGHBOURS, n); k++) {
+      const dl = l >= 0 ? d - xs[l] : Infinity
+      const dr = r < n ? xs[r] - d : Infinity
+      if (dl <= dr) {
+        reach = dl
+        l--
+      } else {
+        reach = dr
+        r++
+      }
+    }
+    const h = Math.max(TREND_HALF_WINDOW, reach + 1)
+    let sw = 0, sx = 0, sy = 0, sxx = 0, sxy = 0
+    for (let i = lowerBound(d - h); i < n && xs[i] <= d + h; i++) {
+      const u = Math.abs(xs[i] - d) / h
+      if (u >= 1) continue
+      const w = (1 - u ** 3) ** 3 * (useRobust ? robust[i] : 1)
+      const x = xs[i] - d
+      sw += w
+      sx += w * x
+      sy += w * ys[i]
+      sxx += w * x * x
+      sxy += w * x * ys[i]
+    }
+    if (sw < 1e-9) return useRobust ? fitAt(d, false) : ys[Math.min(n - 1, Math.max(0, lowerBound(d)))]
+    const den = sw * sxx - sx * sx
+    const slope = Math.abs(den) < 1e-9 ? 0 : (sw * sxy - sx * sy) / den
+    return (sy - slope * sx) / sw // valeur de la droite locale en x = 0, c.-à-d. au jour d
+  }
+
+  for (let pass = 0; pass < 2; pass++) {
+    const residuals = xs.map((x, i) => ys[i] - fitAt(x, true))
+    const abs = residuals.map(Math.abs).sort((a, b) => a - b)
+    // Écart typique (médiane des écarts), avec un plancher pour ne pas écarter le bruit normal.
+    const s = Math.max(0.1, abs[n >> 1])
+    residuals.forEach((res, i) => {
+      const u = res / (6 * s)
+      robust[i] = Math.abs(u) < 1 ? (1 - u * u) ** 2 : 0
+    })
+  }
+
+  const out: Point[] = []
+  for (let d = xs[0]; d <= xs[n - 1]; d++) out.push({ x: fromDayNumber(d), y: fitAt(d, true) })
+  return out
 }
 
 export function round(value: number, digits = 1): number {
