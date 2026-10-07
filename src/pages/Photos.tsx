@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { allPhotos } from '../db/db'
 import { useBlobUrl } from '../hooks'
@@ -9,6 +9,11 @@ import { POSES, POSE_LABELS, type Entry, type Photo, type Pose } from '../types'
 
 type Mode = 'side' | 'slider'
 
+const MODES: { value: Mode; label: string }[] = [
+  { value: 'side', label: 'Côte à côte' },
+  { value: 'slider', label: 'Curseur' },
+]
+
 export function Photos({ entries }: { entries: Entry[] }) {
   const photos = useLiveQuery(allPhotos, [])
   const [pose, setPose] = useState<Pose>('front')
@@ -16,6 +21,7 @@ export function Photos({ entries }: { entries: Entry[] }) {
   const [before, setBefore] = useState<string | null>(null)
   const [after, setAfter] = useState<string | null>(null)
   const [viewer, setViewer] = useState<Photo | null>(null)
+  const [compare, setCompare] = useState(false)
 
   const dates = useMemo(() => [...new Set((photos ?? []).map((p) => p.date))], [photos])
   const weightOn = useMemo(() => new Map(entries.map((e) => [e.date, e.weight])), [entries])
@@ -47,6 +53,17 @@ export function Photos({ entries }: { entries: Entry[] }) {
   const wAfter = after ? weightOn.get(after) : undefined
   const beforePhoto = find(before, pose)
   const afterPhoto = find(after, pose)
+  const beforeLabel = before ? fmtDate(before, 'd MMM yyyy') : ''
+  const afterLabel = after ? fmtDate(after, 'd MMM yyyy') : ''
+  const summary =
+    wBefore !== undefined && wAfter !== undefined ? (
+      <>
+        <strong className={wAfter < wBefore ? 'good' : wAfter > wBefore ? 'bad' : ''}>{fmtDelta(wAfter - wBefore)}</strong>
+        <span style={{ opacity: 0.6 }}> en {before && after ? Math.abs(diffDays(before, after)) : 0} jours</span>
+      </>
+    ) : (
+      <span style={{ opacity: 0.6 }}>Pas de pesée à l'une de ces dates</span>
+    )
 
   return (
     <div className="page">
@@ -62,32 +79,28 @@ export function Photos({ entries }: { entries: Entry[] }) {
       <div className="card" style={{ marginTop: 12, padding: 12 }}>
         {mode === 'side' ? (
           <div className="grid-2" style={{ gap: 8 }}>
-            <Frame photo={beforePhoto} label={before ? fmtDate(before, 'd MMM yyyy') : ''} weight={wBefore} onOpen={setViewer} />
-            <Frame photo={afterPhoto} label={after ? fmtDate(after, 'd MMM yyyy') : ''} weight={wAfter} onOpen={setViewer} />
+            <Frame photo={beforePhoto} label={beforeLabel} weight={wBefore} onOpen={() => setCompare(true)} />
+            <Frame photo={afterPhoto} label={afterLabel} weight={wAfter} onOpen={() => setCompare(true)} />
           </div>
         ) : (
           <Slider before={beforePhoto} after={afterPhoto} />
         )}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, gap: 12 }}>
-          <div className="small">
-            {wBefore !== undefined && wAfter !== undefined ? (
-              <>
-                <strong className={wAfter < wBefore ? 'good' : wAfter > wBefore ? 'bad' : ''}>{fmtDelta(wAfter - wBefore)}</strong>
-                <span className="muted"> en {before && after ? Math.abs(diffDays(before, after)) : 0} jours</span>
-              </>
-            ) : (
-              <span className="muted">Pas de pesée à l'une de ces dates</span>
-            )}
-          </div>
-          <div style={{ width: 170 }}>
-            <Segmented
-              value={mode}
-              options={[
-                { value: 'side', label: 'Côte à côte' },
-                { value: 'slider', label: 'Curseur' },
-              ]}
-              onChange={setMode}
-            />
+          <div className="small">{summary}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              className="icon-btn"
+              aria-label="Comparer en plein écran"
+              onClick={() => setCompare(true)}
+              disabled={!beforePhoto && !afterPhoto}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+              </svg>
+            </button>
+            <div style={{ width: 170 }}>
+              <Segmented value={mode} options={MODES} onChange={setMode} />
+            </div>
           </div>
         </div>
       </div>
@@ -110,6 +123,17 @@ export function Photos({ entries }: { entries: Entry[] }) {
       </div>
 
       {viewer && <Viewer photo={viewer} weight={weightOn.get(viewer.date)} onClose={() => setViewer(null)} />}
+      {compare && (
+        <CompareViewer
+          pose={pose}
+          before={{ photo: beforePhoto, label: beforeLabel, weight: wBefore }}
+          after={{ photo: afterPhoto, label: afterLabel, weight: wAfter }}
+          summary={summary}
+          mode={mode}
+          onMode={setMode}
+          onClose={() => setCompare(false)}
+        />
+      )}
     </div>
   )
 }
@@ -262,13 +286,17 @@ function Thumb({ photo, onOpen }: { photo?: Photo; onOpen: (p: Photo) => void })
   )
 }
 
-function Viewer({ photo, weight, onClose }: { photo: Photo; weight?: number; onClose: () => void }) {
-  const url = useBlobUrl(photo.blob)
+function useEscape(onClose: () => void) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
+}
+
+function Viewer({ photo, weight, onClose }: { photo: Photo; weight?: number; onClose: () => void }) {
+  const url = useBlobUrl(photo.blob)
+  useEscape(onClose)
   return (
     <div
       onClick={onClose}
@@ -297,4 +325,263 @@ function Viewer({ photo, weight, onClose }: { photo: Photo; weight?: number; onC
       </div>
     </div>
   )
+}
+
+// ---------- Comparaison plein écran ----------
+
+interface Side {
+  photo?: Photo
+  label: string
+  weight?: number
+}
+
+/** Les deux photos en plein écran : côte à côte avec zoom synchronisé, ou curseur en grand. */
+function CompareViewer({
+  pose,
+  before,
+  after,
+  summary,
+  mode,
+  onMode,
+  onClose,
+}: {
+  pose: Pose
+  before: Side
+  after: Side
+  summary: React.ReactNode
+  mode: Mode
+  onMode: (m: Mode) => void
+  onClose: () => void
+}) {
+  useEscape(onClose)
+  const zoom = useZoomPan()
+  const { reset } = zoom
+  useEffect(reset, [mode, reset])
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Comparaison avant / après"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 30,
+        background: '#000',
+        color: '#fff',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: 'calc(var(--safe-top) + 8px) 12px calc(var(--safe-bottom) + 12px)',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <strong>{POSE_LABELS[pose]}</strong>
+        <button
+          aria-label="Fermer"
+          onClick={onClose}
+          style={{ width: 32, height: 32, borderRadius: 16, background: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: 15, fontWeight: 600 }}
+        >
+          ✕
+        </button>
+      </div>
+
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {mode === 'side' ? (
+          <div
+            {...zoom.handlers}
+            style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, width: '100%', height: '100%', touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
+          >
+            <ZoomPane side={before} boxRef={zoom.boxRef(0)} style={zoom.style} />
+            <ZoomPane side={after} boxRef={zoom.boxRef(1)} style={zoom.style} />
+          </div>
+        ) : (
+          // Le curseur garde son ratio 3:4 et prend toute la place disponible.
+          <div style={{ width: 'min(100%, calc((100dvh - var(--safe-top) - var(--safe-bottom) - 150px) * 3 / 4))' }}>
+            <Slider before={before.photo} after={after.photo} />
+          </div>
+        )}
+      </div>
+
+      <div className="small" style={{ textAlign: 'center', marginTop: 10 }}>
+        {summary}
+        {mode === 'side' && <span style={{ opacity: 0.55 }}> · pince ou touche deux fois pour zoomer</span>}
+      </div>
+      <div style={{ width: '100%', maxWidth: 280, margin: '8px auto 0' }}>
+        <Segmented value={mode} options={MODES} onChange={onMode} className="on-dark" />
+      </div>
+    </div>
+  )
+}
+
+function ZoomPane({ side, boxRef, style }: { side: Side; boxRef: (el: HTMLDivElement | null) => void; style: React.CSSProperties }) {
+  const url = useBlobUrl(side.photo?.blob)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0, minWidth: 0 }}>
+      {/* Cadre au format des photos (3:4) : pas de bandes noires dans lesquelles se perdre en zoomant. */}
+      <div
+        ref={boxRef}
+        style={{ width: '100%', aspectRatio: '3 / 4', maxHeight: 'calc(100% - 44px)', position: 'relative', overflow: 'hidden', borderRadius: 10, background: '#111' }}
+      >
+        {url ? (
+          <img
+            src={url}
+            alt={side.label}
+            draggable={false}
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', ...style }}
+          />
+        ) : (
+          <div className="small" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', opacity: 0.6 }}>
+            Pas de photo
+          </div>
+        )}
+      </div>
+      <div className="small" style={{ marginTop: 6, textAlign: 'center' }}>
+        <div style={{ fontWeight: 600 }}>{side.label}</div>
+        <div style={{ opacity: 0.6 }}>{side.weight !== undefined ? fmtKg(side.weight) : '—'}</div>
+      </div>
+    </div>
+  )
+}
+
+interface Zoom {
+  s: number
+  x: number // décalage (px) du centre de la photo
+  y: number
+}
+
+type XY = { x: number; y: number }
+
+const NO_ZOOM: Zoom = { s: 1, x: 0, y: 0 }
+const MAX_ZOOM = 5
+
+/**
+ * Zoom et déplacement partagés par les deux photos : pincer, glisser, double-toucher.
+ * Les deux cadres ont la même taille, donc la même transformation montre la même zone du corps.
+ */
+function useZoomPan() {
+  const [zoom, setZoomState] = useState<Zoom>(NO_ZOOM)
+  const [smooth, setSmooth] = useState(false)
+  const current = useRef(zoom)
+  const boxes = useRef<(HTMLDivElement | null)[]>([])
+  const g = useRef({
+    pointers: new Map<number, XY>(),
+    start: NO_ZOOM,
+    mid: { x: 0, y: 0 },
+    dist: 0,
+    rect: null as DOMRect | null,
+    moved: false,
+    lastTap: { at: 0, x: 0, y: 0 },
+  })
+
+  const setZoom = (z: Zoom) => {
+    current.current = z
+    setZoomState(z)
+  }
+
+  /** Bornes : pas de dézoom sous ×1, et la photo ne quitte jamais son cadre. */
+  const clamp = (z: Zoom, r: DOMRect): Zoom => {
+    const s = Math.min(MAX_ZOOM, Math.max(1, z.s))
+    const mx = ((s - 1) * r.width) / 2
+    const my = ((s - 1) * r.height) / 2
+    return { s, x: Math.min(mx, Math.max(-mx, z.x)), y: Math.min(my, Math.max(-my, z.y)) }
+  }
+
+  /** Cadre sous le point (gauche ou droite) ; à défaut le premier. */
+  const rectAt = (p: XY) => {
+    const rects = boxes.current.flatMap((b) => (b ? [b.getBoundingClientRect()] : []))
+    return rects.find((r) => p.x >= r.left && p.x <= r.right) ?? rects[0] ?? null
+  }
+  /** Coordonnées relatives au centre du cadre. */
+  const local = (p: XY, r: DOMRect) => ({ x: p.x - r.left - r.width / 2, y: p.y - r.top - r.height / 2 })
+
+  /** Zoome à l'échelle `scale` : le point de la photo qui était sous `from` vient sous `to`. */
+  const zoomAround = (z: Zoom, from: XY, to: XY, scale: number, r: DOMRect) => {
+    const p0 = local(from, r)
+    const p = local(to, r)
+    const cx = (p0.x - z.x) / z.s
+    const cy = (p0.y - z.y) / z.s
+    return clamp({ s: scale, x: p.x - scale * cx, y: p.y - scale * cy }, r)
+  }
+
+  /** (Re)part de l'état courant, selon le nombre de doigts posés. */
+  function begin() {
+    const s = g.current
+    const pts = [...s.pointers.values()]
+    s.start = current.current
+    if (pts.length >= 2) {
+      const [a, b] = pts
+      s.mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+      s.dist = Math.max(20, Math.hypot(a.x - b.x, a.y - b.y))
+    } else if (pts.length === 1) s.mid = pts[0]
+    s.rect = rectAt(s.mid)
+  }
+
+  const handlers = {
+    onPointerDown: (ev: React.PointerEvent<HTMLDivElement>) => {
+      ev.currentTarget.setPointerCapture(ev.pointerId)
+      const s = g.current
+      s.moved = s.pointers.size > 0 // deuxième doigt : ce n'est plus un toucher
+      s.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY })
+      setSmooth(false)
+      begin()
+    },
+    onPointerMove: (ev: React.PointerEvent<HTMLDivElement>) => {
+      const s = g.current
+      if (!s.pointers.has(ev.pointerId) || !s.rect) return
+      s.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY })
+      const pts = [...s.pointers.values()]
+      if (pts.length >= 2) {
+        const [a, b] = pts
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+        const dist = Math.max(20, Math.hypot(a.x - b.x, a.y - b.y))
+        setZoom(zoomAround(s.start, s.mid, mid, s.start.s * (dist / s.dist), s.rect))
+      } else {
+        const dx = pts[0].x - s.mid.x
+        const dy = pts[0].y - s.mid.y
+        if (!s.moved && Math.hypot(dx, dy) < 6) return
+        s.moved = true
+        setZoom(clamp({ ...s.start, x: s.start.x + dx, y: s.start.y + dy }, s.rect))
+      }
+    },
+    onPointerUp: (ev: React.PointerEvent<HTMLDivElement>) => {
+      const s = g.current
+      if (!s.pointers.delete(ev.pointerId)) return
+      if (s.pointers.size > 0) {
+        begin() // un doigt reste posé après un pincement : on continue en glissant
+        return
+      }
+      if (s.moved) return
+      const tap = { at: performance.now(), x: ev.clientX, y: ev.clientY }
+      const last = s.lastTap
+      if (tap.at - last.at < 320 && Math.hypot(tap.x - last.x, tap.y - last.y) < 30) {
+        // Double-toucher : ×2,5 sur le point touché, ou retour à ×1.
+        const r = rectAt(tap)
+        setSmooth(true)
+        setZoom(current.current.s > 1.05 || !r ? NO_ZOOM : zoomAround(current.current, tap, tap, 2.5, r))
+        s.lastTap = { at: 0, x: 0, y: 0 }
+      } else s.lastTap = tap
+    },
+    onPointerCancel: (ev: React.PointerEvent<HTMLDivElement>) => {
+      const s = g.current
+      s.pointers.delete(ev.pointerId)
+      if (s.pointers.size > 0) begin()
+    },
+  }
+
+  const boxRef = (i: number) => (el: HTMLDivElement | null) => {
+    boxes.current[i] = el
+  }
+
+  const reset = useRef(() => {
+    current.current = NO_ZOOM
+    setZoomState(NO_ZOOM)
+  }).current
+
+  const style: React.CSSProperties = {
+    transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.s})`,
+    transition: smooth ? 'transform 0.25s ease-out' : 'none',
+    willChange: 'transform',
+  }
+
+  return { handlers, boxRef, style, reset }
 }

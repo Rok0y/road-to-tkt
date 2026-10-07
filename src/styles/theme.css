@@ -336,6 +336,20 @@ button.row:active {
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 1px 1px rgba(0, 0, 0, 0.04);
 }
 
+/* Sur fond noir (visionneuse plein écran). */
+.segmented.on-dark {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.segmented.on-dark button {
+  color: #fff;
+}
+
+.segmented.on-dark button[aria-pressed='true'] {
+  background: rgba(255, 255, 255, 0.3);
+  box-shadow: none;
+}
+
 /* ---------- Barre d'onglets ---------- */
 
 .tabbar {
