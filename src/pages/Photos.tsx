@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { allPhotos } from '../db/db'
-import { useBlobUrl } from '../hooks'
+import { allPhotos, updatePhotoImages } from '../db/db'
+import { useBlobUrl, useImageRatio } from '../hooks'
+import { CropEditor } from '../components/CropEditor'
+import { cropPhoto, isFullCrop } from '../lib/images'
 import { EmptyState, PageHeader, Segmented } from '../components/ui'
 import { capitalize, fmtDate, fmtDelta, fmtKg } from '../lib/format'
 import { diffDays } from '../lib/dates'
-import { POSES, POSE_LABELS, type Entry, type Photo, type Pose } from '../types'
+import { POSES, POSE_LABELS, type Crop, type Entry, type Photo, type Pose } from '../types'
 
 type Mode = 'side' | 'slider'
 
@@ -14,13 +16,23 @@ const MODES: { value: Mode; label: string }[] = [
   { value: 'slider', label: 'Curseur' },
 ]
 
+/**
+ * Format commun aux deux photos comparées : celui de la photo « après » (la plus récente,
+ * a priori recadrée comme les suivantes), borné pour rester lisible.
+ */
+function useFrameRatio(before?: Photo, after?: Photo): number {
+  const b = useImageRatio(before?.blob)
+  const a = useImageRatio(after?.blob)
+  return Math.min(1, Math.max(0.4, a ?? b ?? 3 / 4))
+}
+
 export function Photos({ entries }: { entries: Entry[] }) {
   const photos = useLiveQuery(allPhotos, [])
   const [pose, setPose] = useState<Pose>('front')
   const [mode, setMode] = useState<Mode>('side')
   const [before, setBefore] = useState<string | null>(null)
   const [after, setAfter] = useState<string | null>(null)
-  const [viewer, setViewer] = useState<Photo | null>(null)
+  const [viewerId, setViewerId] = useState<number | null>(null)
   const [compare, setCompare] = useState(false)
 
   const dates = useMemo(() => [...new Set((photos ?? []).map((p) => p.date))], [photos])
@@ -35,6 +47,9 @@ export function Photos({ entries }: { entries: Entry[] }) {
   }, [dates, before, after])
 
   if (photos === undefined) return <div className="page" />
+  // Lue dans la base à chaque rendu : la visionneuse suit un recadrage.
+  const viewer = photos.find((p) => p.id === viewerId)
+  const openViewer = (p: Photo) => setViewerId(p.id ?? null)
 
   if (!photos.length) {
     return (
@@ -78,10 +93,11 @@ export function Photos({ entries }: { entries: Entry[] }) {
 
       <div className="card" style={{ marginTop: 12, padding: 12 }}>
         {mode === 'side' ? (
-          <div className="grid-2" style={{ gap: 8 }}>
-            <Frame photo={beforePhoto} label={beforeLabel} weight={wBefore} onOpen={() => setCompare(true)} />
-            <Frame photo={afterPhoto} label={afterLabel} weight={wAfter} onOpen={() => setCompare(true)} />
-          </div>
+          <SideBySide
+            before={{ photo: beforePhoto, label: beforeLabel, weight: wBefore }}
+            after={{ photo: afterPhoto, label: afterLabel, weight: wAfter }}
+            onOpen={() => setCompare(true)}
+          />
         ) : (
           <Slider before={beforePhoto} after={afterPhoto} />
         )}
@@ -115,14 +131,14 @@ export function Photos({ entries }: { entries: Entry[] }) {
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               {POSES.map((p) => (
-                <Thumb key={p} photo={find(d, p)} onOpen={setViewer} />
+                <Thumb key={p} photo={find(d, p)} onOpen={openViewer} />
               ))}
             </div>
           </div>
         ))}
       </div>
 
-      {viewer && <Viewer photo={viewer} weight={weightOn.get(viewer.date)} onClose={() => setViewer(null)} />}
+      {viewer && <Viewer photo={viewer} weight={weightOn.get(viewer.date)} onClose={() => setViewerId(null)} />}
       {compare && (
         <CompareViewer
           pose={pose}
@@ -165,27 +181,29 @@ function DateField({
   )
 }
 
-function Frame({
-  photo,
-  label,
-  weight,
-  onOpen,
-}: {
-  photo?: Photo
-  label: string
-  weight?: number
-  onOpen: (p: Photo) => void
-}) {
+function SideBySide({ before, after, onOpen }: { before: Side; after: Side; onOpen: () => void }) {
+  const ratio = useFrameRatio(before.photo, after.photo)
+  return (
+    <div className="grid-2" style={{ gap: 8 }}>
+      <Frame side={before} ratio={ratio} onOpen={onOpen} />
+      <Frame side={after} ratio={ratio} onOpen={onOpen} />
+    </div>
+  )
+}
+
+/** Cadre au format des photos recadrées : le corps occupe toute la hauteur disponible. */
+function Frame({ side, ratio, onOpen }: { side: Side; ratio: number; onOpen: () => void }) {
+  const { photo, label, weight } = side
   const url = useBlobUrl(photo?.blob)
   return (
     <div>
       <button
         className={`photo-slot${url ? ' filled' : ''}`}
-        style={{ width: '100%' }}
-        onClick={() => photo && onOpen(photo)}
+        style={{ width: '100%', aspectRatio: String(ratio), background: url ? 'var(--fill)' : undefined }}
+        onClick={onOpen}
         disabled={!photo}
       >
-        {url ? <img src={url} alt={label} /> : <span>Pas de photo</span>}
+        {url ? <img src={url} alt={label} style={{ objectFit: 'contain' }} /> : <span>Pas de photo</span>}
       </button>
       <div className="small" style={{ marginTop: 6, textAlign: 'center' }}>
         <div style={{ fontWeight: 600 }}>{label}</div>
@@ -198,6 +216,7 @@ function Frame({
 /** Superposition avant/après : on fait glisser la séparation. */
 function Slider({ before, after }: { before?: Photo; after?: Photo }) {
   const [pos, setPos] = useState(50)
+  const ratio = useFrameRatio(before, after)
   const beforeUrl = useBlobUrl(before?.blob)
   const afterUrl = useBlobUrl(after?.blob)
   if (!beforeUrl || !afterUrl) {
@@ -214,7 +233,7 @@ function Slider({ before, after }: { before?: Photo; after?: Photo }) {
   }
   return (
     <div
-      style={{ position: 'relative', aspectRatio: '3 / 4', borderRadius: 12, overflow: 'hidden', touchAction: 'pan-y', cursor: 'ew-resize', userSelect: 'none' }}
+      style={{ position: 'relative', aspectRatio: String(ratio), borderRadius: 12, overflow: 'hidden', touchAction: 'pan-y', cursor: 'ew-resize', userSelect: 'none' }}
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId)
         moveTo(e)
@@ -296,7 +315,26 @@ function useEscape(onClose: () => void) {
 
 function Viewer({ photo, weight, onClose }: { photo: Photo; weight?: number; onClose: () => void }) {
   const url = useBlobUrl(photo.blob)
-  useEscape(onClose)
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  useEscape(editing ? () => {} : onClose)
+
+  /** Nouveau recadrage, toujours taillé dans la photo entière (jamais dans une photo déjà recadrée). */
+  async function applyCrop(crop: Crop) {
+    setEditing(false)
+    const source = photo.original ?? photo.blob
+    if (!photo.original && isFullCrop(crop)) return // déjà entière
+    setBusy(true)
+    try {
+      const images = await cropPhoto(source, crop)
+      await updatePhotoImages(photo.id!, isFullCrop(crop) ? images : { ...images, original: source, crop })
+    } catch (err) {
+      alert(`Recadrage impossible : ${(err as Error).message}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div
       onClick={onClose}
@@ -320,9 +358,32 @@ function Viewer({ photo, weight, onClose }: { photo: Photo; weight?: number; onC
         <strong>{POSE_LABELS[photo.pose]}</strong> · {fmtDate(photo.date, 'd MMMM yyyy')}
         {weight !== undefined && ` · ${fmtKg(weight)}`}
       </div>
-      <div className="small" style={{ opacity: 0.6, marginTop: 4 }}>
-        Touchez pour fermer
+      <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+        <button
+          className="small"
+          disabled={busy}
+          onClick={(e) => {
+            e.stopPropagation()
+            setEditing(true)
+          }}
+          style={{ padding: '7px 16px', borderRadius: 16, background: 'rgba(255,255,255,0.18)', color: '#fff', fontWeight: 600 }}
+        >
+          {busy ? 'Recadrage…' : 'Recadrer'}
+        </button>
       </div>
+      <div className="small" style={{ opacity: 0.6, marginTop: 8 }}>
+        Touchez ailleurs pour fermer
+      </div>
+      {editing && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <CropEditor
+            source={photo.original ?? photo.blob}
+            initial={photo.original ? photo.crop : undefined}
+            onCancel={() => setEditing(false)}
+            onConfirm={applyCrop}
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -354,6 +415,7 @@ function CompareViewer({
   onClose: () => void
 }) {
   useEscape(onClose)
+  const ratio = useFrameRatio(before.photo, after.photo)
   const zoom = useZoomPan()
   const { reset } = zoom
   useEffect(reset, [mode, reset])
@@ -391,12 +453,12 @@ function CompareViewer({
             {...zoom.handlers}
             style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, width: '100%', height: '100%', touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
           >
-            <ZoomPane side={before} boxRef={zoom.boxRef(0)} style={zoom.style} />
-            <ZoomPane side={after} boxRef={zoom.boxRef(1)} style={zoom.style} />
+            <ZoomPane side={before} ratio={ratio} boxRef={zoom.boxRef(0)} style={zoom.style} />
+            <ZoomPane side={after} ratio={ratio} boxRef={zoom.boxRef(1)} style={zoom.style} />
           </div>
         ) : (
-          // Le curseur garde son ratio 3:4 et prend toute la place disponible.
-          <div style={{ width: 'min(100%, calc((100dvh - var(--safe-top) - var(--safe-bottom) - 150px) * 3 / 4))' }}>
+          // Le curseur garde le format des photos et prend toute la place disponible.
+          <div style={{ width: `min(100%, calc((100dvh - var(--safe-top) - var(--safe-bottom) - 150px) * ${ratio}))` }}>
             <Slider before={before.photo} after={after.photo} />
           </div>
         )}
@@ -413,14 +475,24 @@ function CompareViewer({
   )
 }
 
-function ZoomPane({ side, boxRef, style }: { side: Side; boxRef: (el: HTMLDivElement | null) => void; style: React.CSSProperties }) {
+function ZoomPane({
+  side,
+  ratio,
+  boxRef,
+  style,
+}: {
+  side: Side
+  ratio: number
+  boxRef: (el: HTMLDivElement | null) => void
+  style: React.CSSProperties
+}) {
   const url = useBlobUrl(side.photo?.blob)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0, minWidth: 0 }}>
-      {/* Cadre au format des photos (3:4) : pas de bandes noires dans lesquelles se perdre en zoomant. */}
+      {/* Cadre au format des photos : pas de bandes noires dans lesquelles se perdre en zoomant. */}
       <div
         ref={boxRef}
-        style={{ width: '100%', aspectRatio: '3 / 4', maxHeight: 'calc(100% - 44px)', position: 'relative', overflow: 'hidden', borderRadius: 10, background: '#111' }}
+        style={{ width: '100%', aspectRatio: String(ratio), maxHeight: 'calc(100% - 44px)', position: 'relative', overflow: 'hidden', borderRadius: 10, background: '#111' }}
       >
         {url ? (
           <img

@@ -107,3 +107,23 @@ export function useBlobUrl(blob: PhotoData | undefined | null): string | undefin
   }, [blob])
   return url
 }
+
+/** Proportions (largeur / hauteur) d'une image ; `null` tant qu'elle n'est pas lue. */
+export function useImageRatio(blob: PhotoData | undefined | null): number | null {
+  const url = useBlobUrl(blob)
+  const [ratio, setRatio] = useState<number | null>(null)
+  useEffect(() => {
+    if (!url) {
+      setRatio(null)
+      return
+    }
+    let alive = true
+    const img = new Image()
+    img.onload = () => alive && setRatio(img.naturalWidth / img.naturalHeight)
+    img.src = url
+    return () => {
+      alive = false
+    }
+  }, [url])
+  return ratio
+}

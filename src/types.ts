@@ -33,10 +33,22 @@ export const POSE_LABELS: Record<Pose, string> = {
  */
 export type PhotoData = ArrayBuffer | Blob
 
+/** Rectangle de recadrage, en fractions de la photo entière (0 → 1). */
+export interface Crop {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
 export interface Photo {
   id?: number
   date: ISODate
   pose: Pose
+  /** Photo affichée (recadrée s'il y a lieu). */
   blob: PhotoData
   thumb: PhotoData
+  /** Photo entière, gardée pour pouvoir recadrer à nouveau ; absente si la photo n'est pas recadrée. */
+  original?: PhotoData
+  crop?: Crop
 }

@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie'
-import type { Entry, PhotoData, ISODate, Photo, Pose, Program } from '../types'
+import type { Crop, Entry, PhotoData, ISODate, Photo, Pose, Program } from '../types'
 
 /*
  * Aucune requête de ce fichier n'ouvre de curseur IndexedDB : le WebKit d'iOS (Safari, Chrome iOS,
@@ -64,13 +64,37 @@ export async function toBuffer(data: PhotoData): Promise<ArrayBuffer> {
   return data instanceof Blob ? data.arrayBuffer() : data
 }
 
-export async function savePhoto(date: ISODate, pose: Pose, blob: PhotoData, thumb: PhotoData) {
+/** Images d'une photo : affichée, miniature et, si elle est recadrée, la photo entière et le cadre. */
+export interface PhotoImages {
+  blob: PhotoData
+  thumb: PhotoData
+  original?: PhotoData
+  crop?: Crop
+}
+
+async function toStored(images: PhotoImages) {
+  const [blob, thumb, original] = await Promise.all([
+    toBuffer(images.blob),
+    toBuffer(images.thumb),
+    images.original ? toBuffer(images.original) : undefined,
+  ])
+  return { blob, thumb, original, crop: images.crop }
+}
+
+export async function savePhoto(date: ISODate, pose: Pose, images: PhotoImages) {
   // Conversion hors transaction : un `await` étranger à IndexedDB fermerait la transaction.
-  const [full, small] = await Promise.all([toBuffer(blob), toBuffer(thumb)])
+  const stored = await toStored(images)
   await db.transaction('rw', db.photos, async () => {
     await db.photos.bulkDelete(await photoIds((p) => p.date === date && p.pose === pose))
-    await db.photos.add({ date, pose, blob: full, thumb: small })
+    await db.photos.add({ date, pose, ...stored })
   })
+}
+
+/** Remplace les images d'une photo existante (nouveau recadrage). */
+export async function updatePhotoImages(id: number, images: PhotoImages) {
+  const stored = await toStored(images)
+  const photo = await db.photos.get(id)
+  if (photo) await db.photos.put({ id, date: photo.date, pose: photo.pose, ...stored })
 }
 
 export async function deletePhoto(date: ISODate, pose: Pose) {

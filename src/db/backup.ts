@@ -1,4 +1,4 @@
-import type { Entry, PhotoData, Photo, Pose, Program } from '../types'
+import type { Crop, Entry, PhotoData, Photo, Pose, Program } from '../types'
 import { todayISO } from '../lib/dates'
 import { db } from './db'
 
@@ -8,7 +8,8 @@ interface BackupFile {
   exportedAt: string
   program: Program | null
   entries: Entry[]
-  photos: { date: string; pose: Pose; blob: string; thumb: string }[]
+  // `original` et `crop` : photos recadrées (absents des sauvegardes plus anciennes).
+  photos: { date: string; pose: Pose; blob: string; thumb: string; original?: string; crop?: Crop }[]
 }
 
 function toDataUrl(data: PhotoData): Promise<string> {
@@ -43,6 +44,7 @@ export async function buildBackup(): Promise<File> {
         pose: p.pose,
         blob: await toDataUrl(p.blob),
         thumb: await toDataUrl(p.thumb),
+        ...(p.original && p.crop ? { original: await toDataUrl(p.original), crop: p.crop } : {}),
       })),
     ),
   }
@@ -78,6 +80,7 @@ export async function restoreBackup(file: File): Promise<{ entries: number; phot
       pose: p.pose,
       blob: await dataUrlToBuffer(p.blob),
       thumb: await dataUrlToBuffer(p.thumb),
+      ...(p.original && p.crop ? { original: await dataUrlToBuffer(p.original), crop: p.crop } : {}),
     })),
   )
   await db.transaction('rw', db.program, db.entries, db.photos, async () => {
