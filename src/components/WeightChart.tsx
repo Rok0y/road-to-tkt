@@ -13,13 +13,13 @@ import 'chartjs-adapter-date-fns'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import type { Entry, ISODate, Program } from '../types'
-import { bmi, objectiveRate, projectDate, trendSeries, type Granularity, type Milestone } from '../lib/calc'
+import { bmi, projectDate, SMOOTHING_LEVELS, trendSeries, type Granularity, type Milestone, type Smoothing } from '../lib/calc'
 import { addDays, todayISO, toLocalDate } from '../lib/dates'
 import { fmtDate, fmtNumber } from '../lib/format'
 
 ChartJS.register(LineController, LineElement, PointElement, LinearScale, TimeScale, Filler)
 
-// Palette validée (daltonisme compris) : tendance / points de contrôle / rythme de l'objectif.
+// Palette validée (daltonisme compris) : tendance / points de contrôle / projection.
 const BLUE = '#0a84ff'
 const BRONZE = '#b5651d'
 const TEAL = '#12a594'
@@ -78,6 +78,9 @@ interface Props {
   entries: Entry[]
   milestones: Milestone[]
   granularity: Granularity
+  smoothing: Smoothing
+  /** Rythme (kg/semaine, signé) de la projection : le rythme général. */
+  rate: number | null
   today: ISODate
 }
 
@@ -153,7 +156,7 @@ function timeTicks(min: number, max: number): { ticks: number[]; fmt: string } {
   return { ticks, fmt: 'yyyy' }
 }
 
-export function WeightChart({ program, entries, milestones, granularity, today }: Props) {
+export function WeightChart({ program, entries, milestones, granularity, smoothing, rate, today }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<ChartJS<'line', Pt[]> | null>(null)
@@ -162,14 +165,15 @@ export function WeightChart({ program, entries, milestones, granularity, today }
 
   // ---------- Séries (indépendantes de la fenêtre) ----------
   const series = useMemo(() => {
-    const trend: Pt[] = trendSeries(entries).map((p) => ({ x: ms(p.x), y: p.y }))
+    const trend: Pt[] = trendSeries(entries, SMOOTHING_LEVELS[smoothing].halfWindow).map((p) => ({ x: ms(p.x), y: p.y }))
     const dots: Pt[] = entries.map((e) => ({ x: ms(e.date), y: e.weight })).sort((a, b) => a.x - b.x)
     const last = trend[trend.length - 1]
-    // Rythme de l'objectif : depuis le dernier point de tendance jusqu'à l'objectif.
+    // Projection au rythme général, du dernier point de tendance jusqu'à l'objectif
+    // (rien si le rythme ne mène pas à l'objectif).
     let projection: Pt[] = []
     if (last) {
       const lastIso = isoOf(last.x)
-      const reach = projectDate(last.y, program.targetWeight, objectiveRate(program), lastIso)
+      const reach = projectDate(last.y, program.targetWeight, rate, lastIso)
       if (reach && reach > lastIso) projection = [last, { x: ms(reach), y: program.targetWeight }]
     }
     const markers: Marker[] = [
@@ -180,15 +184,16 @@ export function WeightChart({ program, entries, milestones, granularity, today }
       { t: ms(program.endDate), y: program.targetWeight, emoji: '🏆' },
     ]
     return { trend, dots, projection, markers }
-  }, [entries, milestones, program])
+  }, [entries, milestones, program, smoothing, rate])
 
   // ---------- Limites de navigation et vue par défaut de chaque raccourci ----------
   const first = entries.reduce((m, e) => (e.date < m ? e.date : m), program.startDate)
+  const projectionEnd = series.projection[1]?.x ?? 0
   const bounds = useMemo(() => {
     const lo = ms(addDays(first, -15))
-    const hi = Math.max(ms(addDays(program.endDate, 20)), ms(addDays(today, 30)))
+    const hi = Math.max(ms(addDays(program.endDate, 20)), ms(addDays(today, 30)), projectionEnd + 20 * DAY)
     return { lo, hi }
-  }, [first, program.endDate, today])
+  }, [first, program.endDate, today, projectionEnd])
 
   const home = useMemo<View>(() => {
     // Aujourd'hui tout à droite, le passé à gauche ; si l'historique est plus court que la vue,
@@ -471,7 +476,7 @@ export function WeightChart({ program, entries, milestones, granularity, today }
             pointBorderWidth: () => (dotSize(spanDays()) ? 1 : 0),
           },
           {
-            label: "Rythme de l'objectif",
+            label: 'Au rythme général',
             data: [],
             borderColor: TEAL,
             borderWidth: 2.5,
@@ -754,7 +759,7 @@ export function WeightChart({ program, entries, milestones, granularity, today }
             </span>
           </div>
           <div className="small muted">
-            {shown.kind === 'trend' ? 'Tendance' : "Rythme de l'objectif"}, {fmtDate(isoOf(shown.t), 'd MMM yyyy')}
+            {shown.kind === 'trend' ? 'Tendance' : 'Projection au rythme général'}, {fmtDate(isoOf(shown.t), 'd MMM yyyy')}
           </div>
         </div>
       )}
@@ -778,7 +783,7 @@ export function WeightChart({ program, entries, milestones, granularity, today }
         </span>
         <span>
           <span style={{ display: 'inline-block', width: 16, borderTop: `2.5px dashed ${TEAL}`, marginRight: 5, verticalAlign: 3 }} />
-          Rythme de l'objectif
+          Au rythme général
         </span>
       </div>
 

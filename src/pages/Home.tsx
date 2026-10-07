@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Entry, Program } from '../types'
-import type { Stats } from '../hooks'
+import { useSmoothing, type Stats } from '../hooks'
 import { Gauge } from '../components/Gauge'
 import { EmptyState, PageHeader, Segmented } from '../components/ui'
 import { WeightChart } from '../components/WeightChart'
@@ -39,6 +39,7 @@ function loadGranularity(): Granularity {
 export function Home({ program, entries, stats, photoDates, today, onAdd, onEdit, onSetup, onDemo }: Props) {
   const [showAll, setShowAll] = useState(false)
   const [granularity, setGranularity] = useState<Granularity>(loadGranularity)
+  const [smoothing] = useSmoothing()
   const changeGranularity = (g: Granularity) => {
     setGranularity(g)
     try {
@@ -88,8 +89,8 @@ export function Home({ program, entries, stats, photoDates, today, onAdd, onEdit
   const cat = bmiCategory(value)
   const lost = stats.weight - program.startWeight
   const remaining = program.targetWeight - stats.weight
-  const nextRate = stats.rates.current ?? stats.rates.overall
-  const nextDate = stats.next ? projectDate(stats.weight, stats.next.weight, nextRate, today) : null
+  // Rythme général : le rythme sur 14 jours varie trop d'une semaine à l'autre pour une estimation.
+  const nextDate = stats.next ? projectDate(stats.weight, stats.next.weight, stats.rates.overall, today) : null
   const history = [...entries].reverse()
   const shown = showAll ? history : history.slice(0, 20)
 
@@ -164,6 +165,8 @@ export function Home({ program, entries, stats, photoDates, today, onAdd, onEdit
               entries={entries}
               milestones={stats.milestones}
               granularity={granularity}
+              smoothing={smoothing}
+              rate={stats.rates.overall}
               today={today}
             />
           </div>

@@ -169,7 +169,7 @@ export function Plan({ program, entries, stats, today }: Props) {
       <h2 className="section-title">Paliers</h2>
       <div className="list">
         {stats.milestones.map((m) => {
-          const eta = !m.reachedOn ? projectDate(stats.weight, m.weight, stats.rates.current ?? stats.rates.overall, today) : null
+          const eta = !m.reachedOn ? projectDate(stats.weight, m.weight, stats.rates.overall, today) : null
           const isNext = stats.next?.index === m.index
           return (
             <div key={m.index} className="row">
@@ -205,7 +205,7 @@ export function Plan({ program, entries, stats, today }: Props) {
           )
         })}
       </div>
-      <p className="section-footer">Dates prévues au rythme actuel (14 j), ou au rythme général à défaut.</p>
+      <p className="section-footer">Dates prévues au rythme général (depuis le début).</p>
 
       <h2 className="section-title">Semaine par semaine</h2>
       {weeks.length === 0 ? (

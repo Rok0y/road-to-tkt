@@ -198,9 +198,16 @@ export interface Point {
   y: number
 }
 
-/** Demi-fenêtre minimale de la tendance (jours), élargie si les pesées sont espacées. */
-export const TREND_HALF_WINDOW = 5
-/** Nombre minimal de pesées prises en compte autour de chaque jour. */
+/** Niveaux de lissage de la courbe : demi-fenêtre minimale de la tendance (jours). */
+export type Smoothing = 'light' | 'medium' | 'strong' | 'max'
+export const SMOOTHING_LEVELS: Record<Smoothing, { label: string; halfWindow: number }> = {
+  light: { label: 'Léger', halfWindow: 7 },
+  medium: { label: 'Moyen', halfWindow: 14 },
+  strong: { label: 'Fort', halfWindow: 21 },
+  max: { label: 'Très fort', halfWindow: 30 },
+}
+export const DEFAULT_SMOOTHING: Smoothing = 'medium'
+/** Nombre minimal de pesées prises en compte autour de chaque jour (grandit avec la fenêtre). */
 export const TREND_NEIGHBOURS = 6
 
 /**
@@ -209,16 +216,21 @@ export const TREND_NEIGHBOURS = 6
  * Régression locale robuste (type LOWESS) : autour de chaque jour, on ajuste une droite
  * sur les pesées voisines, pondérées par leur proximité (noyau tricube). Puis on repère
  * les pesées très éloignées de la courbe (repas salé, pesée ratée…) et on refait
- * l'ajustement en réduisant leur poids, deux fois. La courbe reste lisse, colle aux
- * mesures et ne se laisse pas tirer par les valeurs extrêmes.
+ * l'ajustement en réduisant leur poids, deux fois. La courbe reste lisse et ne se laisse
+ * pas tirer par les valeurs extrêmes.
+ *
+ * `halfWindow` règle la souplesse : au-delà d'une semaine de chaque côté, les variations
+ * d'un jour à l'autre (effet week-end…) s'effacent et il reste la tendance de fond. Comme
+ * on ajuste une droite et non une moyenne, la courbe ne prend pas de retard en bout de série.
  */
-export function trendSeries(entries: Entry[]): Point[] {
+export function trendSeries(entries: Entry[], halfWindow = SMOOTHING_LEVELS[DEFAULT_SMOOTHING].halfWindow): Point[] {
   const sorted = sortEntries(entries)
   const n = sorted.length
   if (n < 3) return sorted.map((e) => ({ x: e.date, y: e.weight }))
   const xs = sorted.map((e) => dayNumber(e.date))
   const ys = sorted.map((e) => e.weight)
   const robust = new Array<number>(n).fill(1)
+  const neighbours = Math.max(TREND_NEIGHBOURS, Math.round(halfWindow / 2))
 
   /** Premier indice dont la date est ≥ d. */
   const lowerBound = (d: number) => {
@@ -233,12 +245,12 @@ export function trendSeries(entries: Entry[]): Point[] {
   }
 
   const fitAt = (d: number, useRobust: boolean): number => {
-    // Demi-fenêtre : au moins TREND_HALF_WINDOW jours, et assez large pour contenir
-    // TREND_NEIGHBOURS pesées (on étend vers la plus proche des deux extrémités).
+    // Demi-fenêtre : au moins `halfWindow` jours, et assez large pour contenir
+    // `neighbours` pesées (on étend vers la plus proche des deux extrémités).
     let l = lowerBound(d) - 1
     let r = l + 1
     let reach = 0
-    for (let k = 0; k < Math.min(TREND_NEIGHBOURS, n); k++) {
+    for (let k = 0; k < Math.min(neighbours, n); k++) {
       const dl = l >= 0 ? d - xs[l] : Infinity
       const dr = r < n ? xs[r] - d : Infinity
       if (dl <= dr) {
@@ -249,7 +261,7 @@ export function trendSeries(entries: Entry[]): Point[] {
         r++
       }
     }
-    const h = Math.max(TREND_HALF_WINDOW, reach + 1)
+    const h = Math.max(halfWindow, reach + 1)
     let sw = 0, sx = 0, sy = 0, sxx = 0, sxy = 0
     for (let i = lowerBound(d - h); i < n && xs[i] <= d + h; i++) {
       const u = Math.abs(xs[i] - d) / h

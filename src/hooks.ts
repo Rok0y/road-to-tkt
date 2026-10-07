@@ -4,6 +4,8 @@ import { allEntries, allPhotos, db } from './db/db'
 import type { Entry, PhotoData, Program } from './types'
 import { todayISO } from './lib/dates'
 import {
+  DEFAULT_SMOOTHING,
+  SMOOTHING_LEVELS,
   currentRate,
   currentWeight,
   milestones,
@@ -11,6 +13,7 @@ import {
   objectiveRate,
   overallRate,
   progress,
+  type Smoothing,
 } from './lib/calc'
 
 /** `undefined` pendant le chargement, `null` si aucun programme n'est configuré. */
@@ -41,6 +44,30 @@ export function useToday(): string {
     }
   }, [])
   return today
+}
+
+const SMOOTHING_KEY = 'chart-smoothing'
+
+/** Lissage de la courbe, propre à l'appareil (comme le zoom du graphique). */
+export function useSmoothing(): [Smoothing, (s: Smoothing) => void] {
+  const [value, setValue] = useState<Smoothing>(() => {
+    try {
+      const v = localStorage.getItem(SMOOTHING_KEY)
+      if (v && v in SMOOTHING_LEVELS) return v as Smoothing
+    } catch {
+      /* stockage indisponible */
+    }
+    return DEFAULT_SMOOTHING
+  })
+  const change = (s: Smoothing) => {
+    setValue(s)
+    try {
+      localStorage.setItem(SMOOTHING_KEY, s)
+    } catch {
+      /* ignore */
+    }
+  }
+  return [value, change]
 }
 
 export function useStats(program: Program | null | undefined, entries: Entry[] | undefined, today: string) {

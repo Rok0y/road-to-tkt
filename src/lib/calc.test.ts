@@ -13,6 +13,7 @@ import {
   progress,
   projectDate,
   rateForEndDate,
+  SMOOTHING_LEVELS,
   smoothedWeight,
   trendSeries,
   weeklySummary,
@@ -166,5 +167,23 @@ describe('courbe de tendance', () => {
   it('suit la pente jusqu’au bout, sans retard', () => {
     const t = trendSeries(days)
     expect(Math.abs(t[t.length - 1].y - truth(t[t.length - 1].x))).toBeLessThan(0.3)
+  })
+  it('efface le cycle de la semaine quand le lissage augmente', () => {
+    // 90 jours de perte régulière, +0,6 kg chaque samedi et dimanche.
+    const weekly = Array.from({ length: 90 }, (_, i) => {
+      const date = addDays('2026-08-17', i) // un lundi
+      return e(date, 110 - 0.05 * i + (i % 7 >= 5 ? 0.6 : 0))
+    })
+    // Amplitude de l'oscillation autour de la pente de fond (le niveau moyen importe peu).
+    const wobble = (halfWindow: number) => {
+      const gaps = trendSeries(weekly, halfWindow)
+        .slice(20, -20)
+        .map((p) => p.y - (110 - 0.05 * diffDays('2026-08-17', p.x)))
+      return Math.max(...gaps) - Math.min(...gaps)
+    }
+    const light = wobble(SMOOTHING_LEVELS.light.halfWindow)
+    const medium = wobble(SMOOTHING_LEVELS.medium.halfWindow)
+    expect(medium).toBeLessThan(0.1)
+    expect(medium).toBeLessThan(light / 2)
   })
 })

@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import type { Entry, Program } from '../types'
 import { clearAll, saveProgram } from '../db/db'
 import { buildBackup, restoreBackup, shareOrDownload } from '../db/backup'
-import { PageHeader } from '../components/ui'
+import { PageHeader, Segmented } from '../components/ui'
 import { ImportSheet } from '../components/ImportSheet'
 import { addDays, todayISO } from '../lib/dates'
 import { fmtNumber, parseDecimal } from '../lib/format'
-import { endDateForRate, rateForEndDate } from '../lib/calc'
+import { endDateForRate, rateForEndDate, SMOOTHING_LEVELS, type Smoothing } from '../lib/calc'
+import { useSmoothing } from '../hooks'
 
 interface Props {
   program: Program | null
@@ -67,6 +68,7 @@ export function Settings({ program, entries, onDemo }: Props) {
   const [status, setStatus] = useState<string | null>(null)
   const [usage, setUsage] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [smoothing, setSmoothing] = useSmoothing()
 
   useEffect(() => {
     setForm(toForm(program, first))
@@ -157,6 +159,19 @@ export function Settings({ program, entries, onDemo }: Props) {
           {status}
         </p>
       )}
+
+      <h2 className="section-title">Graphique</h2>
+      <p className="small" style={{ margin: '0 4px 8px', fontWeight: 600 }}>
+        Lissage de la courbe
+      </p>
+      <Segmented
+        value={smoothing}
+        options={(Object.keys(SMOOTHING_LEVELS) as Smoothing[]).map((k) => ({ value: k, label: SMOOTHING_LEVELS[k].label }))}
+        onChange={setSmoothing}
+      />
+      <p className="section-footer">
+        Plus le lissage est fort, plus la courbe ignore les variations d'un jour à l'autre pour montrer la tendance de fond.
+      </p>
 
       <h2 className="section-title">Sauvegarde</h2>
       <div className="list">
