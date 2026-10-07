@@ -168,6 +168,27 @@ describe('courbe de tendance', () => {
     const t = trendSeries(days)
     expect(Math.abs(t[t.length - 1].y - truth(t[t.length - 1].x))).toBeLessThan(0.3)
   })
+  it('montre les phases de hausse et de baisse de quelques semaines', () => {
+    // Perte de fond + onde de 3 semaines (±0,6 kg) + bruit de ±0,4 kg.
+    let seed = 3
+    const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+    const wave = (i: number) => 0.6 * Math.sin((2 * Math.PI * i) / 21)
+    const noisy = Array.from({ length: 120 }, (_, i) => e(addDays('2026-06-01', i), 110 - 0.08 * i + wave(i) + (rand() - 0.5) * 0.8))
+    const t = trendSeries(noisy).slice(10, -10)
+    // Amplitude de l'onde retrouvée dans la courbe (projection sur sin / cos).
+    let s = 0, c = 0, s2 = 0, c2 = 0
+    t.forEach((p, k) => {
+      const i = k + 10
+      const r = p.y - (110 - 0.08 * i)
+      const sn = Math.sin((2 * Math.PI * i) / 21)
+      const cs = Math.cos((2 * Math.PI * i) / 21)
+      s += r * sn
+      c += r * cs
+      s2 += sn * sn
+      c2 += cs * cs
+    })
+    expect(Math.hypot(s / s2, c / c2)).toBeGreaterThan(0.6 * 0.75)
+  })
   it('efface le cycle de la semaine quand le lissage augmente', () => {
     // 90 jours de perte régulière, +0,6 kg chaque samedi et dimanche.
     const weekly = Array.from({ length: 90 }, (_, i) => {

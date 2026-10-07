@@ -202,9 +202,9 @@ export interface Point {
 export type Smoothing = 'light' | 'medium' | 'strong' | 'max'
 export const SMOOTHING_LEVELS: Record<Smoothing, { label: string; halfWindow: number }> = {
   light: { label: 'Léger', halfWindow: 7 },
-  medium: { label: 'Moyen', halfWindow: 14 },
-  strong: { label: 'Fort', halfWindow: 21 },
-  max: { label: 'Très fort', halfWindow: 30 },
+  medium: { label: 'Moyen', halfWindow: 10 },
+  strong: { label: 'Fort', halfWindow: 14 },
+  max: { label: 'Très fort', halfWindow: 21 },
 }
 export const DEFAULT_SMOOTHING: Smoothing = 'medium'
 /** Nombre minimal de pesées prises en compte autour de chaque jour (grandit avec la fenêtre). */
@@ -213,15 +213,15 @@ export const TREND_NEIGHBOURS = 6
 /**
  * Courbe de tendance, un point par jour de la première à la dernière pesée.
  *
- * Régression locale robuste (type LOWESS) : autour de chaque jour, on ajuste une droite
- * sur les pesées voisines, pondérées par leur proximité (noyau tricube). Puis on repère
- * les pesées très éloignées de la courbe (repas salé, pesée ratée…) et on refait
- * l'ajustement en réduisant leur poids, deux fois. La courbe reste lisse et ne se laisse
- * pas tirer par les valeurs extrêmes.
+ * Régression locale robuste (type LOESS) : autour de chaque jour, on ajuste une petite
+ * parabole sur les pesées voisines, pondérées par leur proximité (noyau tricube). Puis on
+ * repère les pesées très éloignées de la courbe (repas salé, pesée ratée…) et on refait
+ * l'ajustement en réduisant leur poids, deux fois.
  *
- * `halfWindow` règle la souplesse : au-delà d'une semaine de chaque côté, les variations
- * d'un jour à l'autre (effet week-end…) s'effacent et il reste la tendance de fond. Comme
- * on ajuste une droite et non une moyenne, la courbe ne prend pas de retard en bout de série.
+ * La parabole, contrairement à une droite, épouse les creux et les bosses : à lissage égal,
+ * la courbe montre les phases de hausse et de baisse de quelques semaines au lieu de les
+ * aplatir, tout en restant arrondie. `halfWindow` règle la souplesse ; à ±10 jours, une
+ * oscillation de 3 semaines est conservée à ~90 % sans virage parasite dû au bruit.
  */
 export function trendSeries(entries: Entry[], halfWindow = SMOOTHING_LEVELS[DEFAULT_SMOOTHING].halfWindow): Point[] {
   const sorted = sortEntries(entries)
@@ -262,19 +262,28 @@ export function trendSeries(entries: Entry[], halfWindow = SMOOTHING_LEVELS[DEFA
       }
     }
     const h = Math.max(halfWindow, reach + 1)
-    let sw = 0, sx = 0, sy = 0, sxx = 0, sxy = 0
+    let sw = 0, sx = 0, sy = 0, sxx = 0, sxy = 0, sx3 = 0, sx4 = 0, sxxy = 0
     for (let i = lowerBound(d - h); i < n && xs[i] <= d + h; i++) {
       const u = Math.abs(xs[i] - d) / h
       if (u >= 1) continue
       const w = (1 - u ** 3) ** 3 * (useRobust ? robust[i] : 1)
-      const x = xs[i] - d
+      const x = (xs[i] - d) / h // abscisse réduite : calcul bien conditionné
       sw += w
       sx += w * x
       sy += w * ys[i]
       sxx += w * x * x
       sxy += w * x * ys[i]
+      sx3 += w * x * x * x
+      sx4 += w * x * x * x * x
+      sxxy += w * x * x * ys[i]
     }
     if (sw < 1e-9) return useRobust ? fitAt(d, false) : ys[Math.min(n - 1, Math.max(0, lowerBound(d)))]
+    // Parabole locale a + b·x + c·x² (moindres carrés pondérés, règle de Cramer) : valeur au jour d → a.
+    const det3 = (m: number[]) =>
+      m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6])
+    const D = det3([sw, sx, sxx, sx, sxx, sx3, sxx, sx3, sx4])
+    if (Math.abs(D) > 1e-9 * sw * sw * sw) return det3([sy, sx, sxx, sxy, sxx, sx3, sxxy, sx3, sx4]) / D
+    // Trop peu de pesées pour une parabole : droite locale.
     const den = sw * sxx - sx * sx
     const slope = Math.abs(den) < 1e-9 ? 0 : (sw * sxy - sx * sy) / den
     return (sy - slope * sx) / sw // valeur de la droite locale en x = 0, c.-à-d. au jour d
